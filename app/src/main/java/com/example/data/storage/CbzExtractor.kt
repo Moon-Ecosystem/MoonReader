@@ -117,14 +117,16 @@ object CbzExtractor {
         }
     }
 
+    /** Where the cover generated from a manga's first page is stored. */
+    fun coverFileFor(context: Context, mangaId: String): File =
+        File(File(context.cacheDir, "covers"), "cover_${getStableHash(mangaId)}.jpg")
+
     /**
      * Writes a downscaled cover from the chapter's first page and returns its path.
      */
     fun extractCover(context: Context, chapterUriString: String, mangaId: String): String? {
-        val mangaHash = getStableHash(mangaId)
-        val coversDir = File(context.cacheDir, "covers")
-        coversDir.mkdirs()
-        val coverFile = File(coversDir, "cover_$mangaHash.jpg")
+        val coverFile = coverFileFor(context, mangaId)
+        coverFile.parentFile?.mkdirs()
 
         // Full-size covers from before downscaling are regenerated
         if (CoverImages.isScaledCover(coverFile)) {

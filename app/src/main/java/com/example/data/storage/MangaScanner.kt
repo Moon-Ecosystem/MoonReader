@@ -15,8 +15,26 @@ object MangaScanner {
 
     data class ScanResult(
         val mangaList: List<Manga>,
-        val chaptersByMangaId: Map<String, List<Chapter>>
+        val chaptersByMangaId: Map<String, List<Chapter>>,
+        /** mangaId -> first chapter URI for manga whose archive cover still has to be generated. */
+        val pendingCovers: Map<String, String> = emptyMap()
     )
+
+    /**
+     * The cached first-page cover if one exists; otherwise queues the manga in [pending] and returns null.
+     * Decoding a large first page takes ~1 s, so covers are made after the scan instead of blocking it.
+     */
+    private fun cachedCoverOrQueue(
+        context: Context,
+        mangaId: String,
+        firstChapterUri: String,
+        pending: MutableMap<String, String>
+    ): String? {
+        val cover = CbzExtractor.coverFileFor(context, mangaId)
+        if (CoverImages.isScaledCover(cover)) return cover.absolutePath
+        pending[mangaId] = firstChapterUri
+        return null
+    }
 
     private fun isArchive(name: String): Boolean {
         val lower = name.trim().lowercase()
@@ -155,6 +173,7 @@ object MangaScanner {
     private fun scanSafFolder(context: Context, treeUri: Uri): ScanResult {
         val mangaList = mutableListOf<Manga>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
+        val pendingCovers = mutableMapOf<String, String>()
 
         try {
             val rootDoc = DocumentFile.fromTreeUri(context, treeUri) ?: return ScanResult(emptyList(), emptyMap())
@@ -229,7 +248,7 @@ object MangaScanner {
                         // 2. Fallback: Extract cover thumbnail from first chapter
                         val firstChapter = chapters.firstOrNull()
                         val extractedPath = firstChapter?.let {
-                            CbzExtractor.extractCover(context, it.fileUriString, mangaId)
+                            cachedCoverOrQueue(context, mangaId, it.fileUriString, pendingCovers)
                         }
                         Pair(extractedPath, false)
                     }
@@ -285,7 +304,7 @@ object MangaScanner {
                 } else {
                     val firstChapter = chapters.firstOrNull()
                     val extractedPath = firstChapter?.let {
-                        CbzExtractor.extractCover(context, it.fileUriString, mangaId)
+                        cachedCoverOrQueue(context, mangaId, it.fileUriString, pendingCovers)
                     }
                     Pair(extractedPath, false)
                 }
@@ -307,12 +326,13 @@ object MangaScanner {
         }
 
         mangaList.sortBy { it.title }
-        return ScanResult(mangaList, chaptersMap)
+        return ScanResult(mangaList, chaptersMap, pendingCovers)
     }
 
     private fun scanLocalFileFolder(context: Context, folderPathOrUri: String): ScanResult {
         val mangaList = mutableListOf<Manga>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
+        val pendingCovers = mutableMapOf<String, String>()
 
         try {
             val path = if (folderPathOrUri.startsWith("file://")) {
@@ -385,7 +405,7 @@ object MangaScanner {
                     } else {
                         val firstChapter = chapters.firstOrNull()
                         val extracted = firstChapter?.let {
-                            CbzExtractor.extractCover(context, it.fileUriString, mangaId)
+                            cachedCoverOrQueue(context, mangaId, it.fileUriString, pendingCovers)
                         }
                         Pair(extracted, false)
                     }
@@ -437,7 +457,7 @@ object MangaScanner {
                 } else {
                     val firstChapter = chapters.firstOrNull()
                     val extracted = firstChapter?.let {
-                        CbzExtractor.extractCover(context, it.fileUriString, mangaId)
+                        cachedCoverOrQueue(context, mangaId, it.fileUriString, pendingCovers)
                     }
                     Pair(extracted, false)
                 }
@@ -459,7 +479,7 @@ object MangaScanner {
         }
 
         mangaList.sortBy { it.title }
-        return ScanResult(mangaList, chaptersMap)
+        return ScanResult(mangaList, chaptersMap, pendingCovers)
     }
 
     private fun cleanChapterTitle(fileName: String): String {

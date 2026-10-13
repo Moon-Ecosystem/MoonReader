@@ -170,6 +170,38 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `scan lists manga without generating covers, then covers are filled in`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val root = java.io.File(context.cacheDir, "cover_scan_lib").apply { deleteRecursively(); mkdirs() }
+    for (book in listOf("Book A", "Book B")) {
+      val dir = java.io.File(root, book).apply { mkdirs() }
+      java.util.zip.ZipOutputStream(java.io.FileOutputStream(java.io.File(dir, "$book.cbz"))).use { zos ->
+        zos.putNextEntry(java.util.zip.ZipEntry("p1.jpg"))
+        zos.write("$book page 1".toByteArray())
+        zos.closeEntry()
+      }
+    }
+    val extractor = com.example.data.storage.CbzExtractor
+    root.listFiles()!!.forEach { extractor.coverFileFor(context, it.absolutePath).delete() }
+
+    // The scanner itself must not decode covers: it only queues them
+    val scan = com.example.data.storage.MangaScanner.scanFolder(context, root.absolutePath)
+    assertEquals(2, scan.mangaList.size)
+    assertTrue(scan.mangaList.all { it.coverPath == null })
+    assertEquals(scan.mangaList.map { it.id }.toSet(), scan.pendingCovers.keys)
+
+    // The repository generates them after publishing the library and stores them in Room
+    val prefs = PreferencesManager(context).apply { setFolderUri(root.absolutePath) }
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    com.example.data.repository.MangaRepository(context, dao, prefs).scanCurrentLibrary()
+    for (manga in scan.mangaList) {
+      val cover = dao.getMangaByIdOnce(manga.id)!!.coverPath
+      assertEquals(extractor.coverFileFor(context, manga.id).absolutePath, cover)
+      assertEquals("${manga.title} page 1", java.io.File(cover!!).readText()) // raw-copy fallback for fake bytes
+    }
+  }
+
+  @Test
   fun `statistics summary and streaks calculation`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val db = com.example.data.db.AppDatabase.getDatabase(context)
