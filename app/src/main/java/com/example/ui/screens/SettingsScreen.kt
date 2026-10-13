@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
@@ -30,7 +29,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -73,7 +71,6 @@ import com.example.ui.MangaViewModel
 import com.example.ui.components.PinDialogMode
 import com.example.ui.components.PinSetupDialog
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,7 +84,6 @@ fun SettingsScreen(
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
     val isAppLockEnabled by viewModel.preferencesManager.isAppLockEnabled.collectAsStateWithLifecycle()
-    val cacheSize by viewModel.cacheSizeBytes.collectAsStateWithLifecycle()
     val trackStatistics by viewModel.preferencesManager.trackStatistics.collectAsStateWithLifecycle()
     val inactivitySeconds by viewModel.preferencesManager.inactivityThresholdSeconds.collectAsStateWithLifecycle()
 
@@ -96,8 +92,6 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
-
-    val cacheMb = cacheSize / (1024f * 1024f)
 
     Scaffold(
         topBar = {
@@ -509,64 +503,6 @@ fun SettingsScreen(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("Change PIN")
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 5. Storage & Cache Card
-            SettingsHeader(title = "STORAGE")
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Storage,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Extracted Chapter Cache",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = String.format(Locale.US, "%.1f MB currently used", cacheMb),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                viewModel.clearCache()
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("Chapter cache cleared successfully")
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            ),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear")
                         }
                     }
                 }

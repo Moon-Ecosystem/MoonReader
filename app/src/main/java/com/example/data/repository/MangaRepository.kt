@@ -327,11 +327,7 @@ class MangaRepository(
         }
     }
 
-    suspend fun clearCache(): Long = withContext(Dispatchers.IO) {
+    suspend fun clearCache() = withContext(Dispatchers.IO) {
         CbzExtractor.clearChapterCache(context)
-    }
-
-    suspend fun getCacheSizeBytes(): Long = withContext(Dispatchers.IO) {
-        CbzExtractor.getCacheSize(context)
     }
 }
