@@ -1,0 +1,6 @@
+{
+  "name": "MangaReader",
+  "description": "Local-first manga reader supporting CBZ files, library organization, customizable reading modes, and progress tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
