@@ -673,9 +673,14 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 val customCoversDir = File(context.filesDir, "custom_covers")
                 customCoversDir.mkdirs()
                 val destFile = File(customCoversDir, "cover_${mangaId.hashCode()}_${System.currentTimeMillis()}.jpg")
-                context.contentResolver.openInputStream(imageUri)?.use { input ->
-                    java.io.FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
+                val scaled = com.example.data.storage.CoverImages.saveScaled(
+                    { context.contentResolver.openInputStream(imageUri) }, destFile
+                )
+                if (!scaled) {
+                    context.contentResolver.openInputStream(imageUri)?.use { input ->
+                        java.io.FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
                     }
                 }
                 if (destFile.exists() && destFile.length() > 0) {
@@ -695,10 +700,20 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun setCustomCoverFromFile(mangaId: String, coverFile: File) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                repository.updateMangaCover(mangaId, coverFile.absolutePath)
+                // Save a scaled copy: coverFile is an extracted page in the chapter cache, which "clear cache" deletes
+                val destFile = File(
+                    File(getApplication<Application>().filesDir, "custom_covers"),
+                    "cover_${mangaId.hashCode()}_${System.currentTimeMillis()}.jpg"
+                )
+                val path = if (com.example.data.storage.CoverImages.saveScaled({ coverFile.inputStream() }, destFile)) {
+                    destFile.absolutePath
+                } else {
+                    coverFile.absolutePath
+                }
+                repository.updateMangaCover(mangaId, path)
                 _selectedManga.value?.let { current ->
                     if (current.id == mangaId) {
-                        _selectedManga.value = current.copy(coverPath = coverFile.absolutePath)
+                        _selectedManga.value = current.copy(coverPath = path)
                     }
                 }
             } catch (e: Exception) {

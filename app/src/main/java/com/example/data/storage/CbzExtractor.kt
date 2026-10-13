@@ -355,9 +355,19 @@ object CbzExtractor {
         coversDir.mkdirs()
         val coverFile = File(coversDir, "cover_$mangaHash.jpg")
 
-        if (coverFile.exists() && coverFile.length() > 0L) {
+        // Full-size covers from before downscaling are regenerated
+        if (CoverImages.isScaledCover(coverFile)) {
             return coverFile.absolutePath
         }
+
+        // Scaled JPEG normally; raw copy if this device can't decode the format (a big cover beats none)
+        fun writeCover(open: () -> InputStream?): Boolean =
+            CoverImages.saveScaled(open, coverFile) || try {
+                open()?.use { input -> FileOutputStream(coverFile).use { input.copyTo(it, COPY_BUFFER) } }
+                coverFile.length() > 0L
+            } catch (_: Exception) {
+                false
+            }
 
         // Check if chapter pages are already extracted in cache
         val chapterCache = getChapterCacheDir(context, chapterUriString)
@@ -365,11 +375,8 @@ object CbzExtractor {
             val firstPage = chapterCache.listFiles()
                 ?.filter { it.isFile && it.length() > 0L && isImageFile(it.name) }
                 ?.minWithOrNull { a, b -> NaturalOrderComparator.compare(a.name, b.name) }
-            if (firstPage != null) {
-                try {
-                    firstPage.copyTo(coverFile, overwrite = true)
-                    return coverFile.absolutePath
-                } catch (_: Exception) {}
+            if (firstPage != null && writeCover { firstPage.inputStream() }) {
+                return coverFile.absolutePath
             }
         }
 
@@ -384,15 +391,12 @@ object CbzExtractor {
                                 .minWithOrNull { a, b ->
                                     NaturalOrderComparator.compare(a.name.replace('\\', '/'), b.name.replace('\\', '/'))
                                 }
-                            first != null && zip.getInputStream(first).use { input ->
-                                FileOutputStream(coverFile).use { output -> input.copyTo(output, COPY_BUFFER) }
-                                true
-                            }
+                            first != null && writeCover { zip.getInputStream(first) }
                         }
                     } catch (_: Exception) {
                         false
                     }
-                    if (written && coverFile.length() > 0L) return coverFile.absolutePath
+                    if (written) return coverFile.absolutePath
                 }
                 coverFile.delete() // don't leave a partial cover that the cache check above would trust
             } finally {
@@ -403,8 +407,7 @@ object CbzExtractor {
         // Fallback: full extraction (handles archives ZipFile cannot read)
         try {
             val firstPage = extractPages(context, chapterUriString, mangaId).firstOrNull()
-            if (firstPage != null && firstPage.exists() && firstPage.length() > 0L) {
-                firstPage.copyTo(coverFile, overwrite = true)
+            if (firstPage != null && firstPage.length() > 0L && writeCover { firstPage.inputStream() }) {
                 return coverFile.absolutePath
             }
         } catch (e: Exception) {
