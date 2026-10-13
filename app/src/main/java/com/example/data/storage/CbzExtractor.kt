@@ -115,33 +115,9 @@ object CbzExtractor {
         return null
     }
 
-    /**
-     * Size of reclaimable cache: chapters extracted by older versions of the app and leftover temp copies.
-     */
-    fun getCacheSize(context: Context): Long {
-        return calculateDirSize(File(context.cacheDir, "chapters")) +
-                (tempFiles(context).sumOf { it.length() })
-    }
-
-    private fun tempFiles(context: Context): List<File> =
-        context.cacheDir.listFiles { f -> f.name.startsWith(TEMP_PREFIX) }?.toList().orEmpty()
-
-    private fun calculateDirSize(dir: File): Long {
-        if (!dir.exists()) return 0L
-        var total = 0L
-        dir.listFiles()?.forEach { file ->
-            total += if (file.isDirectory) calculateDirSize(file) else file.length()
-        }
-        return total
-    }
-
-    /**
-     * Deletes the reclaimable cache (see [getCacheSize]) and returns the bytes freed.
-     */
-    fun clearChapterCache(context: Context): Long {
-        val size = getCacheSize(context)
+    /** Deletes chapters extracted by older versions of the app and leftover temp copies. */
+    fun clearChapterCache(context: Context) {
         File(context.cacheDir, "chapters").deleteRecursively()
-        tempFiles(context).forEach { it.delete() }
-        return size
+        context.cacheDir.listFiles { f -> f.name.startsWith(TEMP_PREFIX) }?.forEach { it.delete() }
     }
 }

@@ -259,10 +259,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentReaderPage = MutableStateFlow(0)
     val currentReaderPage: StateFlow<Int> = _currentReaderPage.asStateFlow()
 
-    // Cache size info for settings
-    private val _cacheSizeBytes = MutableStateFlow(0L)
-    val cacheSizeBytes: StateFlow<Long> = _cacheSizeBytes.asStateFlow()
-
     init {
         // Automatically check if library needs initial scanning
         viewModelScope.launch {
@@ -273,9 +269,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 scanLibrary()
             }
-            // Pages are read straight from archives now: drop chapters extracted by older versions
+            // Pages are read straight from archives: drop chapters extracted by older versions and any
+            // leftover temp copy from a non-seekable provider
             repository.clearCache()
-            refreshCacheSize()
         }
     }
 
@@ -617,19 +613,6 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val mangaId = _selectedManga.value?.id ?: chapter.mangaId
             repository.markChapterRead(chapter.id, mangaId, isRead)
-        }
-    }
-
-    fun clearCache() {
-        viewModelScope.launch {
-            repository.clearCache()
-            refreshCacheSize()
-        }
-    }
-
-    fun refreshCacheSize() {
-        viewModelScope.launch {
-            _cacheSizeBytes.value = repository.getCacheSizeBytes()
         }
     }
 
