@@ -80,6 +80,9 @@ import coil.compose.AsyncImage
 import com.example.data.Chapter
 import com.example.data.Manga
 import com.example.ui.MangaViewModel
+import com.example.ui.components.stableStatusBars
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.union
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -201,7 +204,9 @@ fun ChapterListScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
-                )
+                ),
+                // Default insets follow reported status bar visibility, which can stay "hidden" after the reader
+                windowInsets = WindowInsets.stableStatusBars.union(TopAppBarDefaults.windowInsets)
             )
         },
         modifier = modifier
