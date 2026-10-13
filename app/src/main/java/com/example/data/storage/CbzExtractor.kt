@@ -7,12 +7,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
-import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 
 /**
  * Archive helpers shared by [CbzArchive] (pages are read straight from the archive, never extracted)
@@ -25,13 +22,6 @@ object CbzExtractor {
 
     private val IMAGE_EXTENSIONS = setOf(
         "jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "heic", "heif"
-    )
-
-    internal val SUPPORTED_CHARSETS = listOf(
-        StandardCharsets.UTF_8,
-        Charset.forName("Cp437"),
-        Charset.forName("Shift_JIS"),
-        StandardCharsets.ISO_8859_1
     )
 
     fun isImageFile(fileName: String): Boolean {
@@ -64,55 +54,26 @@ object CbzExtractor {
         }
     }
 
-    internal fun isPageEntry(entry: ZipEntry): Boolean {
-        val normalized = entry.name.replace('\\', '/')
+    /** Whether a ZIP entry name is a readable page (an image, not macOS metadata or a hidden file). */
+    internal fun isPageName(name: String): Boolean {
+        val normalized = name.replace('\\', '/')
         val fileName = normalized.substringAfterLast('/')
-        return !entry.isDirectory &&
-                !normalized.contains("__MACOSX") &&
-                !fileName.startsWith(".") &&
-                isImageFile(fileName)
+        return !normalized.contains("__MACOSX") && !fileName.startsWith(".") && isImageFile(fileName)
     }
 
     /**
-     * Returns a random-access File for the archive plus a cleanup callback.
-     * content:// URIs are read in place through /proc/self/fd when the provider hands out a seekable
-     * file descriptor, avoiding a full copy of the archive; otherwise they are copied to a temp file.
+     * Copies a chapter to a temp file. Only for providers whose descriptor can't seek (some cloud storage);
+     * normal storage is read in place through its descriptor.
      */
-    internal fun stageArchive(context: Context, chapterUriString: String): Pair<File, () -> Unit>? {
-        if (!chapterUriString.startsWith("content://")) {
-            val local = File(chapterUriString)
-            return if (local.exists() && local.isFile) local to {} else null
-        }
-        try {
-            val pfd = context.contentResolver.openFileDescriptor(Uri.parse(chapterUriString), "r")
-            if (pfd != null) {
-                val fdFile = File("/proc/self/fd/${pfd.fd}")
-                val seekable = try {
-                    ZipFile(fdFile, StandardCharsets.ISO_8859_1).close() // any byte sequence is a valid name
-                    true
-                } catch (_: Exception) {
-                    false
-                }
-                if (seekable) return fdFile to { try { pfd.close() } catch (_: Exception) {} }
-                pfd.close()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Direct descriptor access failed for $chapterUriString: ${e.message}")
-        }
+    internal fun copyToTemp(context: Context, chapterUriString: String): File? {
         return try {
-            // Non-seekable provider (e.g. some cloud storage): copy once to a temp file for random access
             val temp = File(context.cacheDir, "$TEMP_PREFIX${System.nanoTime()}.cbz")
             openChapterInputStream(context, chapterUriString)?.use { input ->
                 FileOutputStream(temp).use { output -> input.copyTo(output, COPY_BUFFER) }
             }
-            if (temp.exists() && temp.length() > 0L) {
-                temp to { temp.delete(); Unit }
-            } else {
-                temp.delete()
-                null
-            }
+            if (temp.length() > 0L) temp else null.also { temp.delete() }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stage archive file for $chapterUriString", e)
+            Log.e(TAG, "Failed to copy $chapterUriString to a temp file", e)
             null
         }
     }

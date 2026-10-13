@@ -1,13 +1,15 @@
 package com.example.data.storage
 
 import android.content.Context
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.example.data.CbzPage
 import java.io.Closeable
+import java.io.File
 import java.io.InputStream
+import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
-import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 
 /**
  * An open chapter archive. Opening reads only the ZIP central directory (a few KB at the end of the file);
@@ -15,61 +17,82 @@ import java.util.zip.ZipFile
  */
 class CbzArchive private constructor(
     val uri: String,
-    private val zip: ZipFile,
-    private val entries: List<ZipEntry>
+    private val zip: ChannelZip,
+    private val entries: List<ChannelZip.Entry>
 ) : Closeable {
     val pages: List<CbzPage> = entries.mapIndexed { i, entry -> CbzPage(uri, entry.name, i) }
 
     fun openPage(page: CbzPage): InputStream {
         require(page.archiveUri == uri) { "Page belongs to ${page.archiveUri}, not $uri" }
-        return zip.getInputStream(entries[page.index])
+        return zip.open(entries[page.index])
     }
 
     /** The archive's ComicInfo.xml (preferring the top-level one), or null if it has none. */
     fun openComicInfo(): InputStream? {
-        val candidates = zip.entries().asSequence()
+        val entry = zip.entries
             .filter { !it.isDirectory && it.name.replace('\\', '/').substringAfterLast('/').equals("ComicInfo.xml", true) }
-            .toList()
-        val entry = candidates.minByOrNull { it.name.count { c -> c == '/' || c == '\\' } } ?: return null
-        return zip.getInputStream(entry)
+            .minByOrNull { it.name.count { c -> c == '/' || c == '\\' } }
+            ?: return null
+        return zip.open(entry)
     }
 
-    override fun close() {
-        try {
-            zip.close()
-        } catch (_: Exception) {}
-    }
+    override fun close() = zip.close()
 
     companion object {
         private const val TAG = "CbzArchive"
 
         /** Opens [uri] and lists its pages in natural order, or returns null if it holds no readable pages. */
         fun open(context: Context, uri: String): CbzArchive? {
-            val staged = CbzExtractor.stageArchive(context, uri) ?: return null
-            try {
-                // Entry names are decoded with the charset; fall back through common encodings for older archives
-                for (charset in CbzExtractor.SUPPORTED_CHARSETS) {
-                    val zip = try {
-                        ZipFile(staged.first, charset)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Cannot open $uri as ZIP with ${charset.name()}: ${e.message}")
-                        continue
-                    }
-                    val pageEntries = try {
-                        zip.entries().asSequence().filter { CbzExtractor.isPageEntry(it) }.toList()
-                            .sortedWith { a, b ->
-                                NaturalOrderComparator.compare(a.name.replace('\\', '/'), b.name.replace('\\', '/'))
-                            }
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                    if (pageEntries.isNotEmpty()) return CbzArchive(uri, zip, pageEntries)
-                    zip.close()
-                }
+            val zip = try {
+                openZip(context, uri)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cannot open $uri as ZIP: ${e.message}")
+                null
+            } ?: return null
+            val pageEntries = zip.entries
+                .filter { !it.isDirectory && CbzExtractor.isPageName(it.name) }
+                .sortedWith { a, b -> NaturalOrderComparator.compare(a.name.replace('\\', '/'), b.name.replace('\\', '/')) }
+            if (pageEntries.isEmpty()) {
+                zip.close()
                 return null
+            }
+            return CbzArchive(uri, zip, pageEntries)
+        }
+
+        private fun openZip(context: Context, uri: String): ChannelZip? {
+            if (!uri.startsWith("content://")) {
+                val file = File(uri)
+                if (!file.isFile) return null
+                return zipOrClose(RandomAccessFile(file, "r"))
+            }
+            // Read through the provider's descriptor: no path needed, so nothing is copied for local storage
+            val pfd = context.contentResolver.openFileDescriptor(Uri.parse(uri), "r") ?: return null
+            if (pfd.statSize >= 0) {
+                // AutoCloseInputStream owns the descriptor, so it is closed exactly once along with the channel
+                return zipOrClose(ParcelFileDescriptor.AutoCloseInputStream(pfd))
+            }
+            // Pipe-backed provider (some cloud storage) can't seek: copy once to a temp file, unlinked right away
+            pfd.close()
+            val temp = CbzExtractor.copyToTemp(context, uri) ?: return null
+            return try {
+                zipOrClose(RandomAccessFile(temp, "r"))
             } finally {
-                // ZipFile holds its own descriptor now, so the staging fd can be closed and a temp copy unlinked
-                staged.second()
+                temp.delete()
+            }
+        }
+
+        /** Builds the reader over the stream's channel, closing the stream if the archive is unreadable. */
+        private fun zipOrClose(source: Closeable): ChannelZip {
+            val channel = when (source) {
+                is RandomAccessFile -> source.channel
+                is java.io.FileInputStream -> source.channel
+                else -> error("Unsupported source $source")
+            }
+            return try {
+                ChannelZip(channel) { try { source.close() } catch (_: Exception) {} }
+            } catch (e: Exception) {
+                try { source.close() } catch (_: Exception) {}
+                throw e
             }
         }
     }
