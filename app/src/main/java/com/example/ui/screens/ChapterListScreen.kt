@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -101,7 +100,6 @@ fun ChapterListScreen(
     val chapters by viewModel.currentChapters.collectAsStateWithLifecycle()
     val sortAscending by viewModel.sortChaptersAscending.collectAsStateWithLifecycle()
     var showMenu by remember { mutableStateOf(false) }
-    var isSynopsisExpanded by remember { mutableStateOf(false) }
 
     // Photo Picker for changing individual manga cover image
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -323,30 +321,22 @@ fun ChapterListScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
 
+                            // Only facts known from the files: local manga have no genre/status/synopsis metadata
                             Text(
-                                text = "${chapters.size} Chapters • Offline Series",
+                                text = if (chapters.size == 1) "1 Chapter" else "${chapters.size} Chapters",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                                 fontWeight = FontWeight.SemiBold
                             )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Genre Tags
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                TagChip(label = "Action")
-                                TagChip(label = "Fantasy")
-                                TagChip(label = "Manga")
-                            }
                         }
                     }
                 }
             }
 
-            // Info Card & Synopsis
+            // Info Card
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    // Metadata card (Status, Chapters, Progress)
+                    // Metadata card (Chapters, Progress)
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
@@ -360,40 +350,10 @@ fun ChapterListScreen(
                                 .padding(12.dp),
                             horizontalArrangement = Arrangement.SpaceAround
                         ) {
-                            MetaCol(label = "Status", value = "Ongoing")
                             MetaCol(label = "Chapters", value = "${chapters.size}")
                             MetaCol(label = "Read", value = "$readCount")
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Expandable Synopsis
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .animateContentSize()
-                            .clickable { isSynopsisExpanded = !isSynopsisExpanded }
-                    ) {
-                        Text(
-                            text = "In a world where hunters battle deadly monsters in mysterious dungeons, the journey unfolds with breathtaking battles and high-stakes encounters...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = if (isSynopsisExpanded) 8 else 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 18.sp
-                        )
-                    }
-
-                    Text(
-                        text = if (isSynopsisExpanded) "Show Less ^" else "Read More v",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .clickable { isSynopsisExpanded = !isSynopsisExpanded }
-                    )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -472,22 +432,6 @@ fun ChapterListScreen(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun TagChip(label: String) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-        contentColor = MaterialTheme.colorScheme.primary
-    ) {
-        Text(
-            text = label,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-        )
     }
 }
 
