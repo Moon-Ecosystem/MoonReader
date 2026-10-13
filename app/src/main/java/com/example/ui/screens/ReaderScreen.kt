@@ -138,6 +138,7 @@ fun ReaderScreen(
     val context = LocalContext.current
     val pages by viewModel.readerPages.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoadingPages.collectAsStateWithLifecycle()
+    val readyPages by viewModel.readyPages.collectAsStateWithLifecycle()
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val readerTheme by viewModel.preferencesManager.readerTheme.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
@@ -292,6 +293,7 @@ fun ReaderScreen(
             if (readingDirection == ReadingDirection.WEBTOON) {
                 WebtoonReader(
                     pages = pages,
+                    readyPages = readyPages,
                     initialIndex = initialPageIndex,
                     onPageChanged = { viewModel.onPageChanged(it) },
                     onCenterTap = {
@@ -303,6 +305,7 @@ fun ReaderScreen(
             } else {
                 PagedReader(
                     pages = pages,
+                    readyPages = readyPages,
                     initialIndex = initialPageIndex,
                     isRtl = readingDirection == ReadingDirection.RTL,
                     onPageChanged = { viewModel.onPageChanged(it) },
@@ -885,6 +888,7 @@ private fun PageOptionsBottomSheet(
 @Composable
 fun PagedReader(
     pages: List<File>,
+    readyPages: Set<Int>,
     initialIndex: Int,
     isRtl: Boolean,
     onPageChanged: (Int) -> Unit,
@@ -914,6 +918,7 @@ fun PagedReader(
             ZoomableMangaPage(
                 file = file,
                 pageIndex = pageIndex,
+                ready = pageIndex in readyPages,
                 onLeftTap = {
                     coroutineScope.launch {
                         val target = if (isRtl) pagerState.currentPage + 1 else pagerState.currentPage - 1
@@ -946,6 +951,7 @@ fun PagedReader(
 @Composable
 fun WebtoonReader(
     pages: List<File>,
+    readyPages: Set<Int>,
     initialIndex: Int,
     onPageChanged: (Int) -> Unit,
     onCenterTap: () -> Unit,
@@ -967,6 +973,7 @@ fun WebtoonReader(
             ZoomableWebtoonPage(
                 file = file,
                 pageIndex = index,
+                ready = index in readyPages,
                 onCenterTap = onCenterTap,
                 onCenterLongPress = { onCenterLongPress(index, file) }
             )
@@ -986,6 +993,7 @@ fun WebtoonReader(
 fun ZoomableMangaPage(
     file: File,
     pageIndex: Int,
+    ready: Boolean,
     onLeftTap: () -> Unit,
     onRightTap: () -> Unit,
     onCenterTap: () -> Unit,
@@ -1064,20 +1072,23 @@ fun ZoomableMangaPage(
             mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
         }
         // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
-        AsyncImage(
-            model = imageRequest,
-            contentDescription = "Manga Page ${pageIndex + 1}",
-            contentScale = ContentScale.Fit,
-            onState = { loadState = it },
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
+        // Still being unpacked: loadState stays Empty, so the loading spinner below shows
+        if (ready) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = "Manga Page ${pageIndex + 1}",
+                contentScale = ContentScale.Fit,
+                onState = { loadState = it },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            )
+        }
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> {
@@ -1129,6 +1140,7 @@ fun ZoomableMangaPage(
 fun ZoomableWebtoonPage(
     file: File,
     pageIndex: Int,
+    ready: Boolean,
     onCenterTap: () -> Unit,
     onCenterLongPress: () -> Unit
 ) {
@@ -1190,20 +1202,23 @@ fun ZoomableWebtoonPage(
             mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
         }
         // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
-        AsyncImage(
-            model = imageRequest,
-            contentDescription = "Page ${pageIndex + 1}",
-            contentScale = ContentScale.FillWidth,
-            onState = { loadState = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
+        // Still being unpacked: loadState stays Empty, so the loading spinner below shows
+        if (ready) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = "Page ${pageIndex + 1}",
+                contentScale = ContentScale.FillWidth,
+                onState = { loadState = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            )
+        }
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> {
