@@ -398,7 +398,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resumeReadingSession() {
-        if (activeSessionChapterId == null) return
+        if (activeSessionChapterId == null) {
+            // The session was saved when the app went to the background: start a new one from this page
+            val chapter = _selectedChapter.value?.takeUnless { it.isExternal } ?: return
+            val manga = _selectedManga.value ?: return
+            startReadingSession(manga.id, chapter.id, chapter.title, _currentReaderPage.value)
+            return
+        }
         activeSessionLastActivityTimestamp = System.currentTimeMillis()
         activeSessionIsPaused = false
     }
@@ -438,7 +444,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 chapterId = chapterId,
                 chapterTitle = chapterTitle,
                 startedAt = startedAt,
-                endedAt = startedAt + totalDuration,
+                endedAt = now,
+                durationMillis = totalDuration,
                 startPage = startPage,
                 endPage = maxPage,
                 pagesProgressed = pagesProgressed,

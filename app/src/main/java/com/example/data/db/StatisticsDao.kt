@@ -20,6 +20,9 @@ interface StatisticsDao {
     @Query("SELECT * FROM reading_sessions ORDER BY startedAt DESC")
     suspend fun getAllSessionsOnce(): List<ReadingSessionEntity>
 
+    @Query("SELECT * FROM reading_sessions ORDER BY endedAt DESC LIMIT 1")
+    suspend fun getLatestSession(): ReadingSessionEntity?
+
     @Query("SELECT * FROM reading_sessions WHERE startedAt >= :startTime AND startedAt <= :endTime ORDER BY startedAt ASC")
     fun getSessionsBetween(startTime: Long, endTime: Long): Flow<List<ReadingSessionEntity>>
 

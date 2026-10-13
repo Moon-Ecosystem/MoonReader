@@ -211,9 +211,10 @@ fun ReaderScreen(
     DisposableEffect(lifecycleOwner, chapter.id) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    viewModel.pauseReadingSession()
-                }
+                Lifecycle.Event.ON_PAUSE -> viewModel.pauseReadingSession()
+                // Save what was read so far: stats update right away and a killed app loses nothing.
+                // Coming back starts a new session (resumeReadingSession).
+                Lifecycle.Event.ON_STOP -> viewModel.endReadingSession()
                 Lifecycle.Event.ON_RESUME -> {
                     viewModel.resumeReadingSession()
                 }
@@ -221,10 +222,9 @@ fun ReaderScreen(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            viewModel.endReadingSession()
-        }
+        // No endReadingSession here: on a chapter change selectChapter has already started the next
+        // chapter's session, and ending it here dropped the stats of every chapter read after the first
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var showControls by remember { mutableStateOf(true) }
