@@ -56,7 +56,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `cbz extractor extracts pages and handles nested paths and metadata`() {
+  fun `cbz archive lists pages in order, skipping metadata, without extracting`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val testZip = java.io.File(context.cacheDir, "test_manga.cbz")
 
@@ -83,17 +83,18 @@ class ExampleRobolectricTest {
       zos.closeEntry()
     }
 
-    val extracted = com.example.data.storage.CbzExtractor.extractPages(context, testZip.absolutePath, "test_chapter_id")
-    assertEquals(2, extracted.size)
-    // Verify natural ordering
-    assertTrue(extracted[0].name.startsWith("page_0001"))
-    assertTrue(extracted[1].name.startsWith("page_0002"))
-    assertTrue(extracted[0].length() > 0)
-    assertTrue(extracted[1].length() > 0)
+    val archive = com.example.data.storage.CbzArchive.open(context, testZip.absolutePath)!!
+    archive.use {
+      // Metadata and non-images skipped, natural order applied, nothing written to disk
+      assertEquals(listOf("page_01.jpg", "page_02.jpg"), it.pages.map { p -> p.displayName })
+      assertEquals("page 1 content", it.openPage(it.pages[0]).use { s -> s.readBytes().decodeToString() })
+      assertEquals("page 2 content", it.openPage(it.pages[1]).use { s -> s.readBytes().decodeToString() })
+    }
+    assertFalse(java.io.File(context.cacheDir, "chapters").exists())
   }
 
   @Test
-  fun `cover extracts only first page and incomplete page cache is rebuilt`() {
+  fun `cover uses only the first page and nothing is extracted`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val cbz = java.io.File(context.cacheDir, "cover_test.cbz")
     java.util.zip.ZipOutputStream(java.io.FileOutputStream(cbz)).use { zos ->
@@ -103,50 +104,39 @@ class ExampleRobolectricTest {
         zos.closeEntry()
       }
     }
-    val extractor = com.example.data.storage.CbzExtractor
-    val chapterDir = java.io.File(context.cacheDir, "chapters/" + extractor.getStableHash(cbz.absolutePath))
-
-    val cover = extractor.extractCover(context, cbz.absolutePath, "cover_test_manga")
+    // Fake image bytes can't be decoded, so this also exercises the raw-copy cover fallback
+    val cover = com.example.data.storage.CbzExtractor.extractCover(context, cbz.absolutePath, "cover_test_manga")
     assertEquals("p1.jpg", java.io.File(cover!!).readText())
-    assertFalse("cover must not unpack the whole chapter", chapterDir.exists())
-
-    val pages = extractor.extractPages(context, cbz.absolutePath, "ch")
-    assertEquals(listOf("p1.jpg", "p2.jpg", "p10.jpg"), pages.map { it.readText() })
-    assertTrue(java.io.File(chapterDir, ".complete").exists())
-
-    // Simulate a process killed mid-extraction: marker gone, a page missing
-    java.io.File(chapterDir, ".complete").delete()
-    pages.last().delete()
-    assertEquals(3, extractor.extractPages(context, cbz.absolutePath, "ch").size)
+    assertFalse(java.io.File(context.cacheDir, "chapters").exists())
   }
 
   @Test
-  fun `progressive extraction plans pages first and writes from the resume page outward`() {
+  fun `coil fetcher reads a page straight from the archive, held open or not`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val cbz = java.io.File(context.cacheDir, "progressive_test.cbz")
+    val cbz = java.io.File(context.cacheDir, "fetch_test.cbz")
     java.util.zip.ZipOutputStream(java.io.FileOutputStream(cbz)).use { zos ->
-      for (i in 1..6) {
+      for (i in 1..3) {
         zos.putNextEntry(java.util.zip.ZipEntry("p$i.jpg"))
         zos.write("page $i".toByteArray())
         zos.closeEntry()
       }
     }
-    val extractor = com.example.data.storage.CbzExtractor
-    var planned: List<java.io.File>? = null
-    var anyWrittenAtPlan = true
-    val readyOrder = mutableListOf<Int>()
-    val listener = com.example.data.storage.CbzExtractor.ExtractionListener(
-      onPlanned = { files -> planned = files; anyWrittenAtPlan = files.any { it.exists() } },
-      onPageReady = { i -> assertTrue("page $i reported before written", planned!![i].length() > 0); readyOrder += i }
+    val archives = com.example.data.storage.OpenArchives
+    suspend fun fetch(page: com.example.data.CbzPage): String {
+      val result = com.example.data.storage.CbzPageFetcher(page, coil.request.Options(context)).fetch()
+      return (result as coil.fetch.SourceResult).source.source().readUtf8()
+    }
+
+    val pages = archives.acquire(context, cbz.absolutePath)!!.pages
+    assertEquals("page 2", fetch(pages[1]))
+
+    // After the reader releases the chapter, a late request still works by opening the archive briefly
+    archives.retainOnly(emptySet())
+    assertEquals("page 3", fetch(pages[2]))
+    assertEquals(
+      "cbz:${cbz.absolutePath}#p3.jpg",
+      com.example.data.storage.CbzPageKeyer().key(pages[2], coil.request.Options(context))
     )
-
-    val pages = extractor.extractPages(context, cbz.absolutePath, "ch", startIndex = 3, listener = listener)
-
-    assertEquals(6, planned!!.size)
-    assertFalse("plan must arrive before any page is written", anyWrittenAtPlan)
-    assertEquals(listOf(3, 4, 5, 2, 1, 0), readyOrder)
-    assertEquals(planned, pages)
-    assertEquals(listOf(0, 1, 2, 3, 4, 5).map { "page ${it + 1}" }, pages.map { it.readText() })
   }
 
   @Test

@@ -1,7 +1,6 @@
 package com.example.data
 
 import android.net.Uri
-import java.io.File
 
 /**
  * Reading direction modes supported by the reader.
@@ -79,10 +78,19 @@ data class Chapter(
 )
 
 /**
- * Information about an extracted reader page.
+ * A page the reader can show. The reader and image loading only see this type, so new page sources
+ * (e.g. an online source serving page URLs) can be added without touching the reader.
  */
-data class ReaderPage(
-    val index: Int,
-    val totalPages: Int,
-    val file: File
-)
+sealed interface PageRef {
+    val index: Int
+    val displayName: String
+}
+
+/** A page read directly from inside a CBZ/ZIP chapter archive; nothing is extracted to disk. */
+data class CbzPage(
+    val archiveUri: String,
+    val entryName: String,
+    override val index: Int
+) : PageRef {
+    override val displayName: String get() = entryName.replace('\\', '/').substringAfterLast('/')
+}
