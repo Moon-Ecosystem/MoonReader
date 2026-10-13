@@ -78,7 +78,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.animation.core.EaseInOutQuad
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.CoroutineScope
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -208,6 +213,14 @@ fun ReaderScreen(
 
     var showControls by remember { mutableStateOf(true) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+
+    // Like Mihon, the system bars (clock, battery) appear together with the reader menu
+    LaunchedEffect(showControls) {
+        val window = (context as? Activity)?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (showControls) controller.show(WindowInsetsCompat.Type.systemBars())
+        else controller.hide(WindowInsetsCompat.Type.systemBars())
+    }
 
     // Tap-and-hold (Long-press) Page Options Dialog State
     var showPageOptionsSheet by remember { mutableStateOf(false) }
@@ -1044,6 +1057,7 @@ fun ZoomableMangaPage(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    val zoomScope = rememberCoroutineScope()
     val context = LocalContext.current
 
     val imageRequest = remember(page) {
@@ -1095,13 +1109,11 @@ fun ZoomableMangaPage(
                             onCenterTap()
                         }
                     },
-                    onDoubleTap = {
-                        if (scale > 1.05f) {
-                            scale = 1f
-                            offsetX = 0f
-                            offsetY = 0f
-                        } else {
-                            scale = 2.5f
+                    onDoubleTap = { tap ->
+                        zoomScope.animateDoubleTapZoom(tap, size, scale, Offset(offsetX, offsetY)) { s, o ->
+                            scale = s
+                            offsetX = o.x
+                            offsetY = o.y
                         }
                     },
                     onLongPress = { longPressOffset ->
@@ -1191,6 +1203,7 @@ fun ZoomableWebtoonPage(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    val zoomScope = rememberCoroutineScope()
     val context = LocalContext.current
 
     val imageRequest = remember(page) {
@@ -1224,13 +1237,11 @@ fun ZoomableWebtoonPage(
             .pointerInput(page) {
                 detectTapGestures(
                     onTap = { onCenterTap() },
-                    onDoubleTap = {
-                        if (scale > 1.05f) {
-                            scale = 1f
-                            offsetX = 0f
-                            offsetY = 0f
-                        } else {
-                            scale = 2.2f
+                    onDoubleTap = { tap ->
+                        zoomScope.animateDoubleTapZoom(tap, size, scale, Offset(offsetX, offsetY)) { s, o ->
+                            scale = s
+                            offsetX = o.x
+                            offsetY = o.y
                         }
                     },
                     onLongPress = { longPressOffset ->
@@ -1310,6 +1321,37 @@ fun ZoomableWebtoonPage(
  * - Only consumes touch pointers when user pinches with >= 2 fingers OR when user is already zoomed in.
  * - Leaves 1-finger horizontal and vertical drags unconsumed when scale is 1f, allowing HorizontalPager and LazyColumn to scroll smoothly.
  */
+/**
+ * Mihon-style double tap: animate (500 ms, ease-in-out) to 2x with the tapped point moved to the centre of
+ * the view, or back to fit when already zoomed.
+ */
+private fun CoroutineScope.animateDoubleTapZoom(
+    tap: Offset,
+    size: IntSize,
+    scale: Float,
+    offset: Offset,
+    apply: (scale: Float, offset: Offset) -> Unit
+) {
+    val zoomIn = scale <= 1.05f
+    val toScale = if (zoomIn) 2f else 1f
+    val maxX = (toScale - 1f) * size.width / 2f
+    val maxY = (toScale - 1f) * size.height / 2f
+    // graphicsLayer scales around the centre, so moving tap point p to the centre needs offset -s * (p - centre)
+    val toOffset = if (zoomIn) {
+        Offset(
+            (-(tap.x - size.width / 2f) * toScale).coerceIn(-maxX, maxX),
+            (-(tap.y - size.height / 2f) * toScale).coerceIn(-maxY, maxY)
+        )
+    } else {
+        Offset.Zero
+    }
+    launch {
+        animate(0f, 1f, animationSpec = tween(500, easing = EaseInOutQuad)) { f, _ ->
+            apply(scale + (toScale - scale) * f, offset + (toOffset - offset) * f)
+        }
+    }
+}
+
 private suspend fun PointerInputScope.detectMangaZoomAndPan(
     onTransform: (zoomChange: Float, panChange: Offset) -> Unit,
     isZoomed: () -> Boolean,
