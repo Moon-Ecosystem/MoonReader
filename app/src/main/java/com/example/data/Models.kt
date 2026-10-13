@@ -58,7 +58,9 @@ data class Manga(
     val lastReadPage: Int = 0,
     val lastReadTime: Long = 0L,
     val readChapterCount: Int = 0
-)
+) {
+    val isCompleted: Boolean get() = chapterCount > 0 && readChapterCount >= chapterCount
+}
 
 /**
  * Domain representation of a Chapter in a Manga.

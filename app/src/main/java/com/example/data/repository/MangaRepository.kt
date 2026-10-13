@@ -37,8 +37,10 @@ class MangaRepository(
     // Combined library flow: merges scanned filesystem structure with Room database progress & favorites
     val libraryManga: Flow<List<Manga>> = combine(
         _scannedManga,
-        mangaDao.getAllManga()
-    ) { scannedList, dbEntities ->
+        mangaDao.getAllManga(),
+        mangaDao.getAllChapterProgress()
+    ) { scannedList, dbEntities, progress ->
+        val readCounts = progress.filter { it.isRead }.groupingBy { it.mangaId }.eachCount()
         // Show the library saved by the last scan immediately instead of an empty home screen
         // while the launch-time rescan runs; the scan result replaces it when ready.
         if (scannedList == null) {
@@ -53,7 +55,8 @@ class MangaRepository(
                     lastReadChapterId = e.lastReadChapterId,
                     lastReadChapterTitle = e.lastReadChapterTitle,
                     lastReadPage = e.lastReadPage,
-                    lastReadTime = e.lastReadTime
+                    lastReadTime = e.lastReadTime,
+                    readChapterCount = readCounts[e.id] ?: 0
                 )
             }.sortedBy { it.title }
         }
@@ -69,10 +72,11 @@ class MangaRepository(
                     lastReadPage = entity.lastReadPage,
                     lastReadTime = entity.lastReadTime,
                     coverPath = entity.coverPath ?: manga.coverPath,
-                    hasExplicitFolderCover = manga.hasExplicitFolderCover
+                    hasExplicitFolderCover = manga.hasExplicitFolderCover,
+                    readChapterCount = readCounts[manga.id] ?: 0
                 )
             } else {
-                manga
+                manga.copy(readChapterCount = readCounts[manga.id] ?: 0)
             }
         }
     }

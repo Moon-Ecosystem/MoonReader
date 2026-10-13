@@ -165,7 +165,7 @@ fun MangaCard(
                             modifier = Modifier.padding(bottom = 4.dp)
                         ) {
                             Text(
-                                text = "Reading",
+                                text = if (manga.isCompleted) "Completed" else "Reading",
                                 color = MaterialTheme.colorScheme.onPrimary,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,

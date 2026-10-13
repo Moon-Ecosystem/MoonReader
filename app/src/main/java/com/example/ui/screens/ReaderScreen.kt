@@ -124,6 +124,8 @@ import kotlinx.coroutines.launch
 import com.example.data.PageRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -141,6 +143,8 @@ fun ReaderScreen(
     val pages by viewModel.readerPages.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoadingPages.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    // Page the reader should show; the slider changes it and the pager/list follows
+    val readerPage by viewModel.currentReaderPage.collectAsStateWithLifecycle()
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val readerTheme by viewModel.preferencesManager.readerTheme.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
@@ -296,6 +300,7 @@ fun ReaderScreen(
                 WebtoonReader(
                     pages = pages,
                     initialIndex = initialPageIndex,
+                    targetPage = readerPage,
                     onPageChanged = { viewModel.onPageChanged(it) },
                     onCenterTap = {
                         viewModel.onReaderUserInteraction()
@@ -307,6 +312,7 @@ fun ReaderScreen(
                 PagedReader(
                     pages = pages,
                     initialIndex = initialPageIndex,
+                    targetPage = readerPage,
                     isRtl = readingDirection == ReadingDirection.RTL,
                     onPageChanged = { viewModel.onPageChanged(it) },
                     onCenterTap = {
@@ -443,7 +449,8 @@ fun ReaderScreen(
                             CompositionLocalProvider(LocalLayoutDirection provides sliderDirection) {
                                 Slider(
                                     value = currentPage.toFloat(),
-                                    onValueChange = { viewModel.onPageChanged(it.toInt()) },
+                                    // roundToInt: toInt() truncated 29.999 to 29, so the last page could never be reached
+                                    onValueChange = { viewModel.onPageChanged(it.roundToInt()) },
                                     valueRange = 0f..(total - 1).toFloat().coerceAtLeast(0f),
                                     steps = (total - 2).coerceAtLeast(0),
                                     modifier = Modifier
@@ -895,6 +902,7 @@ private fun PageOptionsBottomSheet(
 fun PagedReader(
     pages: List<PageRef>,
     initialIndex: Int,
+    targetPage: Int,
     isRtl: Boolean,
     onPageChanged: (Int) -> Unit,
     onCenterTap: () -> Unit,
@@ -910,6 +918,13 @@ fun PagedReader(
 
     LaunchedEffect(pagerState.currentPage) {
         onPageChanged(pagerState.currentPage)
+    }
+
+    // Jump when the page is changed from outside (the slider); swipes already match, so this is a no-op for them
+    LaunchedEffect(targetPage) {
+        if (targetPage in 0 until totalPages && targetPage != pagerState.currentPage) {
+            pagerState.scrollToPage(targetPage)
+        }
     }
 
     HorizontalPager(
@@ -955,15 +970,30 @@ fun PagedReader(
 fun WebtoonReader(
     pages: List<PageRef>,
     initialIndex: Int,
+    targetPage: Int,
     onPageChanged: (Int) -> Unit,
     onCenterTap: () -> Unit,
     onCenterLongPress: (pageIndex: Int, page: PageRef) -> Unit
 ) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0)))
 
+    // The last page is often shorter than the screen and can never become the first visible item,
+    // so once the list can't scroll further, count the last page as reached (otherwise 30 of 31, never complete)
+    // (before the first layout canScrollForward is also false, so require laid-out items)
+    fun visiblePage() =
+        if (listState.layoutInfo.visibleItemsInfo.isNotEmpty() && !listState.canScrollForward) pages.lastIndex
+        else listState.firstVisibleItemIndex
+
     LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
+        snapshotFlow { visiblePage() }.collect { index ->
             onPageChanged(index)
+        }
+    }
+
+    // Jump when the page is changed from outside (the slider)
+    LaunchedEffect(targetPage) {
+        if (targetPage in pages.indices && targetPage != visiblePage()) {
+            listState.scrollToItem(targetPage)
         }
     }
 
@@ -1028,7 +1058,12 @@ fun ZoomableMangaPage(
                             offsetY = 0f
                         }
                     },
-                    isZoomed = { scale > 1.05f }
+                    isZoomed = { scale > 1.05f },
+                    isAtHorizontalEdge = { dragX ->
+                        val maxOffsetX = (scale - 1f) * size.width / 2f
+                        // Finger moving right reveals the left side: hand over once that side is fully shown
+                        if (dragX > 0f) offsetX >= maxOffsetX - 1f else offsetX <= -maxOffsetX + 1f
+                    }
                 )
             }
             // 2. Tap, Double-Tap, and Tap & Hold (Long-press) detector
@@ -1259,18 +1294,30 @@ fun ZoomableWebtoonPage(
  */
 private suspend fun PointerInputScope.detectMangaZoomAndPan(
     onTransform: (zoomChange: Float, panChange: Offset) -> Unit,
-    isZoomed: () -> Boolean
+    isZoomed: () -> Boolean,
+    // Paged reader (Mihon-style): when a zoomed page is already at its left/right edge, a horizontal
+    // one-finger drag toward that edge is left unconsumed so the pager turns the page
+    isAtHorizontalEdge: ((dragX: Float) -> Boolean)? = null
 ) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
+        var yieldedToPager = false
         do {
             val event = awaitPointerEvent()
             val pointerCount = event.changes.size
             val currentlyZoomed = isZoomed()
 
-            if (pointerCount >= 2 || (currentlyZoomed && pointerCount == 1)) {
+            if (pointerCount >= 2 || (currentlyZoomed && pointerCount == 1 && !yieldedToPager)) {
                 val zoomChange = if (pointerCount >= 2) event.calculateZoom() else 1f
                 val panChange = if (currentlyZoomed || pointerCount >= 2) event.calculatePan() else Offset.Zero
+
+                if (pointerCount == 1 && isAtHorizontalEdge != null &&
+                    abs(panChange.x) > abs(panChange.y) && isAtHorizontalEdge(panChange.x)
+                ) {
+                    // Hand the rest of this gesture to the pager; consuming even once would cancel its drag
+                    yieldedToPager = true
+                    continue
+                }
 
                 if (zoomChange != 1f || panChange != Offset.Zero) {
                     onTransform(zoomChange, panChange)

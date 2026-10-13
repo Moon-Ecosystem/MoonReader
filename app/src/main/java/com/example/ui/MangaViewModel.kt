@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.time.LocalDate
 
@@ -126,7 +128,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     val currentTab: StateFlow<NavTab> = _currentTab.asStateFlow()
 
     private val _selectedManga = MutableStateFlow<Manga?>(null)
-    val selectedManga: StateFlow<Manga?> = _selectedManga.asStateFlow()
+    // Follows the live library entry: the tapped Manga is a snapshot, so without this the chapter list's
+    // "Continue" kept pointing at the chapter that was current when the manga was opened
+    val selectedManga: StateFlow<Manga?> = combine(_selectedManga, repository.libraryManga) { selected, library ->
+        selected?.let { s -> library.find { it.id == s.id } ?: s }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _selectedChapter = MutableStateFlow<Chapter?>(null)
     val selectedChapter: StateFlow<Chapter?> = _selectedChapter.asStateFlow()
@@ -162,7 +168,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (tab == NavTab.HOME) {
             list = when (filter) {
                 LibraryFilter.ALL -> list
-                LibraryFilter.IN_PROGRESS -> list.filter { it.lastReadTime > 0L }
+                LibraryFilter.IN_PROGRESS -> list.filter { it.lastReadTime > 0L && !it.isCompleted }
                 LibraryFilter.UNREAD -> list.filter { it.lastReadTime == 0L }
                 LibraryFilter.FAVORITES -> list.filter { it.isFavorite }
             }
@@ -456,6 +462,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val progressWrites = Mutex()
+
     fun onPageChanged(pageIndex: Int) {
         _currentReaderPage.value = pageIndex
         val chapter = _selectedChapter.value ?: return
@@ -475,15 +483,19 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             activeSessionChapterCompleted = true
         }
 
+        // Saves run one at a time in page-turn order (launch on Main + fair Mutex); in parallel, a slower
+        // save of an earlier page could land last and undo the last page / completed state
         viewModelScope.launch {
-            repository.saveReadingProgress(
-                mangaId = manga.id,
-                chapterId = chapter.id,
-                chapterTitle = chapter.title,
-                page = pageIndex,
-                totalPages = total,
-                isCompleted = isCompleted || chapter.isRead
-            )
+            progressWrites.withLock {
+                repository.saveReadingProgress(
+                    mangaId = manga.id,
+                    chapterId = chapter.id,
+                    chapterTitle = chapter.title,
+                    page = pageIndex,
+                    totalPages = total,
+                    isCompleted = isCompleted || chapter.isRead
+                )
+            }
         }
     }
 
