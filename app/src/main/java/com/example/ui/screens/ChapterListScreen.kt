@@ -6,8 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
@@ -459,7 +462,8 @@ fun ChapterListScreen(
                     chapter = chapter,
                     manga = manga,
                     onChapterClick = { viewModel.selectChapter(chapter) },
-                    onBookmarkClick = { viewModel.toggleBookmark(chapter) }
+                    onBookmarkClick = { viewModel.toggleBookmark(chapter) },
+                    onSetRead = { isRead -> viewModel.markChapterRead(chapter, isRead) }
                 )
             }
         }
@@ -500,21 +504,37 @@ private fun MetaCol(label: String, value: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class) // combinedClickable, for the long-press menu
 @Composable
 private fun ChapterItemModern(
     chapter: Chapter,
     manga: Manga,
     onChapterClick: () -> Unit,
-    onBookmarkClick: () -> Unit
+    onBookmarkClick: () -> Unit,
+    onSetRead: (Boolean) -> Unit
 ) {
+    // Long-press opens a menu to mark the chapter read/unread without opening it; only the read flag
+    // changes, so the saved page position is kept
+    var menuOpen by remember { mutableStateOf(false) }
+    val readActionLabel = if (chapter.isRead) "Mark as Unread" else "Mark as Read"
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
     Surface(
-        onClick = onChapterClick,
         shape = RoundedCornerShape(12.dp),
         color = if (chapter.isRead) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = onChapterClick,
+                onLongClickLabel = readActionLabel,
+                onLongClick = { menuOpen = true }
+            )
             .testTag("chapter_item_${chapter.id}")
     ) {
         Row(
@@ -598,5 +618,23 @@ private fun ChapterItemModern(
                 )
             }
         }
+    }
+
+    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(
+            text = { Text(readActionLabel) },
+            leadingIcon = {
+                Icon(
+                    imageVector = if (chapter.isRead) Icons.Default.RadioButtonUnchecked else Icons.Default.CheckCircle,
+                    contentDescription = null
+                )
+            },
+            onClick = {
+                menuOpen = false
+                onSetRead(!chapter.isRead)
+            },
+            modifier = Modifier.testTag("chapter_mark_read_${chapter.id}")
+        )
+    }
     }
 }

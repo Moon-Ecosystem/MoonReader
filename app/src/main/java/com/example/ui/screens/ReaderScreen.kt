@@ -439,6 +439,12 @@ fun ReaderScreen(
                             )
                             .padding(horizontal = 14.dp, vertical = 4.dp)
                     ) {
+                        // While dragging, only the slider and counter move; the page jumps once on release.
+                        // Moving the pager on every drag event made it report its page back mid-drag and
+                        // fight the thumb (counter jumping around), and decoded a page per event.
+                        var draggedPage by remember { mutableStateOf<Float?>(null) }
+                        val shownPage = draggedPage?.roundToInt() ?: currentPage
+
                         // Slim Slider Row with inline badge counter
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -448,11 +454,15 @@ fun ReaderScreen(
                             val sliderDirection = if (readingDirection == ReadingDirection.RTL) LayoutDirection.Rtl else LayoutDirection.Ltr
                             CompositionLocalProvider(LocalLayoutDirection provides sliderDirection) {
                                 Slider(
-                                    value = currentPage.toFloat(),
-                                    // roundToInt: toInt() truncated 29.999 to 29, so the last page could never be reached
-                                    onValueChange = { viewModel.onPageChanged(it.roundToInt()) },
+                                    value = draggedPage ?: currentPage.toFloat(),
+                                    onValueChange = { draggedPage = it },
+                                    onValueChangeFinished = {
+                                        // roundToInt: toInt() truncated 29.999 to 29, so the last page was unreachable
+                                        draggedPage?.let { viewModel.onPageChanged(it.roundToInt()) }
+                                        draggedPage = null
+                                    },
                                     valueRange = 0f..(total - 1).toFloat().coerceAtLeast(0f),
-                                    steps = (total - 2).coerceAtLeast(0),
+                                    // No steps: one tick per page drew hundreds of dots on long chapters
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(28.dp)
@@ -477,7 +487,7 @@ fun ReaderScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "${currentPage + 1}/$total",
+                                        text = "${shownPage + 1}/$total",
                                         color = Color.White,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold

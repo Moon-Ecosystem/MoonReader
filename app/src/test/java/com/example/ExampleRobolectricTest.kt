@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.preferences.PreferencesManager
 import com.example.data.storage.NaturalOrderComparator
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -137,6 +138,35 @@ class ExampleRobolectricTest {
       "cbz:${cbz.absolutePath}#p3.jpg",
       com.example.data.storage.CbzPageKeyer().key(pages[2], coil.request.Options(context))
     )
+  }
+
+  @Test
+  fun `marking chapters read or unread persists, keeps the page and updates library progress`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    val repo = com.example.data.repository.MangaRepository(context, dao, PreferencesManager(context))
+    val mangaId = "mark_read_manga"
+    dao.insertOrUpdateManga(com.example.data.db.MangaEntity(id = mangaId, title = "M", folderUriString = mangaId, totalChapters = 3))
+
+    // Chapter 1 partially read, then marked read and unread again from the chapter list
+    repo.saveReadingProgress(mangaId, "c1", "Chapter 1", page = 12, totalPages = 30, isCompleted = false)
+    repo.markChapterRead("c1", mangaId, true)
+    assertTrue(dao.getProgressForChapterOnce("c1")!!.isRead)
+    repo.markChapterRead("c1", mangaId, false)
+    val c1 = dao.getProgressForChapterOnce("c1")!!
+    assertFalse(c1.isRead)
+    assertEquals("saved position must survive toggling", 12, c1.lastReadPage)
+
+    // Never-opened chapters can be marked read; library progress follows
+    repo.markChapterRead("c2", mangaId, true)
+    repo.markChapterRead("c3", mangaId, true)
+    fun libraryEntry() = kotlinx.coroutines.runBlocking {
+      repo.libraryManga.first { list -> list.any { it.id == mangaId } }.first { it.id == mangaId }
+    }
+    assertEquals(2, libraryEntry().readChapterCount)
+    assertFalse(libraryEntry().isCompleted)
+    repo.markChapterRead("c1", mangaId, true)
+    assertTrue(libraryEntry().isCompleted)
   }
 
   @Test
