@@ -121,7 +121,9 @@ import com.example.data.ReaderTheme
 import com.example.data.ReadingDirection
 import com.example.ui.MangaViewModel
 import kotlinx.coroutines.launch
-import java.io.File
+import com.example.data.PageRef
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -138,7 +140,7 @@ fun ReaderScreen(
     val context = LocalContext.current
     val pages by viewModel.readerPages.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoadingPages.collectAsStateWithLifecycle()
-    val readyPages by viewModel.readyPages.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val readerTheme by viewModel.preferencesManager.readerTheme.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
@@ -204,12 +206,12 @@ fun ReaderScreen(
 
     // Tap-and-hold (Long-press) Page Options Dialog State
     var showPageOptionsSheet by remember { mutableStateOf(false) }
-    var selectedPageFile by remember { mutableStateOf<File?>(null) }
+    var selectedPage by remember { mutableStateOf<PageRef?>(null) }
     var selectedPageIndex by remember { mutableIntStateOf(0) }
 
-    val onCenterLongPress: (pageIndex: Int, file: File) -> Unit = { pageIndex, file ->
+    val onCenterLongPress: (pageIndex: Int, page: PageRef) -> Unit = { pageIndex, page ->
         selectedPageIndex = pageIndex
-        selectedPageFile = file
+        selectedPage = page
         showPageOptionsSheet = true
     }
 
@@ -293,7 +295,6 @@ fun ReaderScreen(
             if (readingDirection == ReadingDirection.WEBTOON) {
                 WebtoonReader(
                     pages = pages,
-                    readyPages = readyPages,
                     initialIndex = initialPageIndex,
                     onPageChanged = { viewModel.onPageChanged(it) },
                     onCenterTap = {
@@ -305,7 +306,6 @@ fun ReaderScreen(
             } else {
                 PagedReader(
                     pages = pages,
-                    readyPages = readyPages,
                     initialIndex = initialPageIndex,
                     isRtl = readingDirection == ReadingDirection.RTL,
                     onPageChanged = { viewModel.onPageChanged(it) },
@@ -583,30 +583,36 @@ fun ReaderScreen(
             }
 
             // Tap & Hold Center Options Bottom Sheet: 1. Set as cover 2. Save to gallery
-            if (showPageOptionsSheet && selectedPageFile != null) {
+            if (showPageOptionsSheet && selectedPage != null) {
                 PageOptionsBottomSheet(
                     pageNumber = selectedPageIndex + 1,
                     onDismiss = { showPageOptionsSheet = false },
                     onSetAsCover = {
-                        val file = selectedPageFile
-                        if (file != null) {
-                            viewModel.setCustomCoverFromFile(manga.id, file)
+                        val page = selectedPage
+                        if (page != null) {
+                            viewModel.setCustomCoverFromPage(manga.id, page)
                             Toast.makeText(context, "Cover updated to page ${selectedPageIndex + 1}", Toast.LENGTH_SHORT).show()
                         }
                         showPageOptionsSheet = false
                     },
                     onSaveToGallery = {
-                        val file = selectedPageFile
-                        if (file != null) {
-                            val success = saveImageToGallery(
-                                context = context,
-                                file = file,
-                                title = "${manga.title}_ch${chapter.chapterNumber}_p${selectedPageIndex + 1}"
-                            )
-                            if (success) {
-                                Toast.makeText(context, "Page ${selectedPageIndex + 1} saved to Gallery", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Failed to save page to Gallery", Toast.LENGTH_SHORT).show()
+                        val page = selectedPage
+                        val pageNumber = selectedPageIndex + 1
+                        if (page != null) {
+                            scope.launch {
+                                val bytes = viewModel.readPageBytes(page)
+                                val success = bytes != null && withContext(Dispatchers.IO) {
+                                    saveImageToGallery(
+                                        context = context,
+                                        bytes = bytes,
+                                        title = "${manga.title}_ch${chapter.chapterNumber}_p$pageNumber"
+                                    )
+                                }
+                                if (success) {
+                                    Toast.makeText(context, "Page $pageNumber saved to Gallery", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Failed to save page to Gallery", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                         showPageOptionsSheet = false
@@ -621,7 +627,7 @@ fun ReaderScreen(
                     sheetState = rememberModalBottomSheetState()
                 ) {
                     val currentPage by viewModel.currentReaderPage.collectAsStateWithLifecycle()
-                    val currentPageFile = pages.getOrNull(currentPage)
+                    val currentPageRef = pages.getOrNull(currentPage)
 
                     Column(
                         modifier = Modifier
@@ -638,10 +644,10 @@ fun ReaderScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         // Option to set current page as manga cover
-                        if (currentPageFile != null) {
+                        if (currentPageRef != null) {
                             OutlinedButton(
                                 onClick = {
-                                    viewModel.setCustomCoverFromFile(manga.id, currentPageFile)
+                                    viewModel.setCustomCoverFromPage(manga.id, currentPageRef)
                                     Toast.makeText(context, "Cover updated to page ${currentPage + 1}", Toast.LENGTH_SHORT).show()
                                     showSettingsSheet = false
                                 },
@@ -887,13 +893,12 @@ private fun PageOptionsBottomSheet(
  */
 @Composable
 fun PagedReader(
-    pages: List<File>,
-    readyPages: Set<Int>,
+    pages: List<PageRef>,
     initialIndex: Int,
     isRtl: Boolean,
     onPageChanged: (Int) -> Unit,
     onCenterTap: () -> Unit,
-    onCenterLongPress: (pageIndex: Int, file: File) -> Unit
+    onCenterLongPress: (pageIndex: Int, page: PageRef) -> Unit
 ) {
     val totalPages = pages.size
     val safeInitial = initialIndex.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
@@ -913,12 +918,10 @@ fun PagedReader(
         beyondViewportPageCount = 1, // decode neighbouring pages ahead of the swipe
         modifier = Modifier.fillMaxSize()
     ) { pageIndex ->
-        val file = pages.getOrNull(pageIndex)
-        if (file != null) {
+        val page = pages.getOrNull(pageIndex)
+        if (page != null) {
             ZoomableMangaPage(
-                file = file,
-                pageIndex = pageIndex,
-                ready = pageIndex in readyPages,
+                page = page,
                 onLeftTap = {
                     coroutineScope.launch {
                         val target = if (isRtl) pagerState.currentPage + 1 else pagerState.currentPage - 1
@@ -936,7 +939,7 @@ fun PagedReader(
                     }
                 },
                 onCenterTap = onCenterTap,
-                onCenterLongPress = { onCenterLongPress(pageIndex, file) }
+                onCenterLongPress = { onCenterLongPress(pageIndex, page) }
             )
         }
     }
@@ -950,12 +953,11 @@ fun PagedReader(
  */
 @Composable
 fun WebtoonReader(
-    pages: List<File>,
-    readyPages: Set<Int>,
+    pages: List<PageRef>,
     initialIndex: Int,
     onPageChanged: (Int) -> Unit,
     onCenterTap: () -> Unit,
-    onCenterLongPress: (pageIndex: Int, file: File) -> Unit
+    onCenterLongPress: (pageIndex: Int, page: PageRef) -> Unit
 ) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0)))
 
@@ -969,13 +971,11 @@ fun WebtoonReader(
         state = listState,
         modifier = Modifier.fillMaxSize()
     ) {
-        itemsIndexed(pages, key = { _, file -> file.absolutePath }) { index, file ->
+        itemsIndexed(pages, key = { index, _ -> index }) { index, page ->
             ZoomableWebtoonPage(
-                file = file,
-                pageIndex = index,
-                ready = index in readyPages,
+                page = page,
                 onCenterTap = onCenterTap,
-                onCenterLongPress = { onCenterLongPress(index, file) }
+                onCenterLongPress = { onCenterLongPress(index, page) }
             )
         }
     }
@@ -991,9 +991,7 @@ fun WebtoonReader(
  */
 @Composable
 fun ZoomableMangaPage(
-    file: File,
-    pageIndex: Int,
-    ready: Boolean,
+    page: PageRef,
     onLeftTap: () -> Unit,
     onRightTap: () -> Unit,
     onCenterTap: () -> Unit,
@@ -1004,9 +1002,9 @@ fun ZoomableMangaPage(
     var offsetY by remember { mutableFloatStateOf(0f) }
     val context = LocalContext.current
 
-    val imageRequest = remember(file.absolutePath) {
+    val imageRequest = remember(page) {
         ImageRequest.Builder(context)
-            .data(file)
+            .data(page)
             .crossfade(false)
             .build()
     }
@@ -1015,7 +1013,7 @@ fun ZoomableMangaPage(
         modifier = Modifier
             .fillMaxSize()
             // 1. Pinch zoom & Pan gesture detector
-            .pointerInput(file.absolutePath) {
+            .pointerInput(page) {
                 detectMangaZoomAndPan(
                     onTransform = { zoomChange, panChange ->
                         val newScale = (scale * zoomChange).coerceIn(1f, 4.5f)
@@ -1034,7 +1032,7 @@ fun ZoomableMangaPage(
                 )
             }
             // 2. Tap, Double-Tap, and Tap & Hold (Long-press) detector
-            .pointerInput(file.absolutePath) {
+            .pointerInput(page) {
                 detectTapGestures(
                     onTap = { tapOffset ->
                         val width = size.width
@@ -1068,27 +1066,24 @@ fun ZoomableMangaPage(
             },
         contentAlignment = Alignment.Center
     ) {
-        var loadState by remember(file.absolutePath) {
+        var loadState by remember(page) {
             mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
         }
         // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
-        // Still being unpacked: loadState stays Empty, so the loading spinner below shows
-        if (ready) {
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = "Manga Page ${pageIndex + 1}",
-                contentScale = ContentScale.Fit,
-                onState = { loadState = it },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offsetX,
-                        translationY = offsetY
-                    )
-            )
-        }
+        AsyncImage(
+            model = imageRequest,
+            contentDescription = "Manga Page ${page.index + 1}",
+            contentScale = ContentScale.Fit,
+            onState = { loadState = it },
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offsetX,
+                    translationY = offsetY
+                )
+        )
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> {
@@ -1114,7 +1109,7 @@ fun ZoomableMangaPage(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = file.name,
+                            text = page.displayName,
                             color = Color.LightGray,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -1138,9 +1133,7 @@ fun ZoomableMangaPage(
  */
 @Composable
 fun ZoomableWebtoonPage(
-    file: File,
-    pageIndex: Int,
-    ready: Boolean,
+    page: PageRef,
     onCenterTap: () -> Unit,
     onCenterLongPress: () -> Unit
 ) {
@@ -1149,9 +1142,9 @@ fun ZoomableWebtoonPage(
     var offsetY by remember { mutableFloatStateOf(0f) }
     val context = LocalContext.current
 
-    val imageRequest = remember(file.absolutePath) {
+    val imageRequest = remember(page) {
         ImageRequest.Builder(context)
-            .data(file)
+            .data(page)
             .crossfade(false)
             .build()
     }
@@ -1159,7 +1152,7 @@ fun ZoomableWebtoonPage(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .pointerInput(file.absolutePath) {
+            .pointerInput(page) {
                 detectMangaZoomAndPan(
                     onTransform = { zoomChange, panChange ->
                         val newScale = (scale * zoomChange).coerceIn(1f, 4.5f)
@@ -1177,7 +1170,7 @@ fun ZoomableWebtoonPage(
                     isZoomed = { scale > 1.05f }
                 )
             }
-            .pointerInput(file.absolutePath) {
+            .pointerInput(page) {
                 detectTapGestures(
                     onTap = { onCenterTap() },
                     onDoubleTap = {
@@ -1198,27 +1191,24 @@ fun ZoomableWebtoonPage(
                 )
             }
     ) {
-        var loadState by remember(file.absolutePath) {
+        var loadState by remember(page) {
             mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
         }
         // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
-        // Still being unpacked: loadState stays Empty, so the loading spinner below shows
-        if (ready) {
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = "Page ${pageIndex + 1}",
-                contentScale = ContentScale.FillWidth,
-                onState = { loadState = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offsetX,
-                        translationY = offsetY
-                    )
-            )
-        }
+        AsyncImage(
+            model = imageRequest,
+            contentDescription = "Page ${page.index + 1}",
+            contentScale = ContentScale.FillWidth,
+            onState = { loadState = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offsetX,
+                    translationY = offsetY
+                )
+        )
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> {
@@ -1238,7 +1228,7 @@ fun ZoomableWebtoonPage(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Unable to decode ${file.name}",
+                            text = "Unable to decode ${page.displayName}",
                             color = Color.LightGray,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -1296,9 +1286,9 @@ private suspend fun PointerInputScope.detectMangaZoomAndPan(
 }
 
 /**
- * Saves a decoded manga page file to the device's Gallery / Photos app using MediaStore
+ * Saves a manga page's image bytes to the device's Gallery / Photos app using MediaStore
  */
-private fun saveImageToGallery(context: Context, file: File, title: String): Boolean {
+private fun saveImageToGallery(context: Context, bytes: ByteArray, title: String): Boolean {
     return try {
         val resolver = context.contentResolver
         val cleanName = title.replace(Regex("[^a-zA-Z0-9._-]"), "_")
@@ -1317,9 +1307,7 @@ private fun saveImageToGallery(context: Context, file: File, title: String): Boo
             ?: return false
 
         resolver.openOutputStream(uri)?.use { outStream ->
-            file.inputStream().use { inStream ->
-                inStream.copyTo(outStream)
-            }
+            outStream.write(bytes)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

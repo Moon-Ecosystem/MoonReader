@@ -1,14 +1,17 @@
 package com.example.data.repository
 
 import android.content.Context
+import com.example.data.CbzPage
 import com.example.data.Chapter
 import com.example.data.Manga
+import com.example.data.PageRef
 import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.MangaDao
 import com.example.data.db.MangaEntity
 import com.example.data.preferences.PreferencesManager
 import com.example.data.storage.CbzExtractor
 import com.example.data.storage.MangaScanner
+import com.example.data.storage.OpenArchives
 import com.example.data.storage.SampleMangaGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -257,13 +260,24 @@ class MangaRepository(
         }
     }
 
-    suspend fun getChapterPages(
-        chapterId: String,
-        chapterUriString: String,
-        startIndex: Int = 0,
-        listener: CbzExtractor.ExtractionListener? = null
-    ): List<File> = withContext(Dispatchers.IO) {
-        CbzExtractor.extractPages(context, chapterUriString, chapterId, startIndex, listener)
+    /** Opens the chapter archive (kept open for reading) and returns its pages; empty if it can't be read. */
+    suspend fun openChapterPages(chapterUriString: String): List<PageRef> = withContext(Dispatchers.IO) {
+        OpenArchives.acquire(context, chapterUriString)?.pages.orEmpty()
+    }
+
+    /** Closes open chapter archives other than [chapterUris]. */
+    suspend fun retainOpenChapters(chapterUris: Set<String>) = withContext(Dispatchers.IO) {
+        OpenArchives.retainOnly(chapterUris)
+    }
+
+    suspend fun readPageBytes(page: PageRef): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            when (page) {
+                is CbzPage -> OpenArchives.readPage(context, page) { it.readBytes() }
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     suspend fun clearCache(): Long = withContext(Dispatchers.IO) {

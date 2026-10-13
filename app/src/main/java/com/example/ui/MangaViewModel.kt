@@ -8,6 +8,7 @@ import com.example.data.ActivityChartMetric
 import com.example.data.Chapter
 import com.example.data.DayActivity
 import com.example.data.Manga
+import com.example.data.PageRef
 import com.example.data.ReaderFitMode
 import com.example.data.ReaderTheme
 import com.example.data.ReadingDirection
@@ -17,7 +18,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.preferences.PreferencesManager
 import com.example.data.repository.MangaRepository
 import com.example.data.repository.StatisticsRepository
-import com.example.data.storage.CbzExtractor
+import com.example.data.storage.OpenArchives
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,7 +30,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
@@ -210,15 +210,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     // Reader state
-    private val _readerPages = MutableStateFlow<List<File>>(emptyList())
-    val readerPages: StateFlow<List<File>> = _readerPages.asStateFlow()
+    private val _readerPages = MutableStateFlow<List<PageRef>>(emptyList())
+    val readerPages: StateFlow<List<PageRef>> = _readerPages.asStateFlow()
 
     private val _isLoadingPages = MutableStateFlow(false)
     val isLoadingPages: StateFlow<Boolean> = _isLoadingPages.asStateFlow()
-
-    // Indices of reader pages whose files are fully written; the rest are still being unpacked
-    private val _readyPages = MutableStateFlow<Set<Int>>(emptySet())
-    val readyPages: StateFlow<Set<Int>> = _readyPages.asStateFlow()
 
     private val _currentReaderPage = MutableStateFlow(0)
     val currentReaderPage: StateFlow<Int> = _currentReaderPage.asStateFlow()
@@ -237,8 +233,14 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 scanLibrary()
             }
+            // Pages are read straight from archives now: drop chapters extracted by older versions
+            repository.clearCache()
             refreshCacheSize()
         }
+    }
+
+    override fun onCleared() {
+        OpenArchives.retainOnly(emptySet())
     }
 
     fun selectTab(tab: NavTab) {
@@ -415,6 +417,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         endReadingSession()
         _selectedChapter.value = null
         _readerPages.value = emptyList()
+        viewModelScope.launch { repository.retainOpenChapters(emptySet()) }
     }
 
     fun handleBackPress(): Boolean {
@@ -436,38 +439,20 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadChapterPages(chapter: Chapter) {
         viewModelScope.launch {
             _isLoadingPages.value = true
-            _readyPages.value = emptySet()
-            // Extraction can outlive this chapter; drop its callbacks once the user has moved on
-            fun isCurrent() = _selectedChapter.value?.id == chapter.id
-            var openedEarly = false
-            val listener = CbzExtractor.ExtractionListener(
-                onPlanned = { planned ->
-                    if (isCurrent()) {
-                        _readyPages.value = emptySet()
-                        _readerPages.value = planned
-                        _currentReaderPage.value = if (chapter.lastReadPage in planned.indices) chapter.lastReadPage else 0
-                        _isLoadingPages.value = false // open the reader now; pages fill in as they are written
-                        openedEarly = true
-                    }
-                },
-                onPageReady = { index -> if (isCurrent()) _readyPages.update { it + index } }
-            )
-            val pages = repository.getChapterPages(chapter.id, chapter.fileUriString, chapter.lastReadPage, listener)
-            if (!isCurrent()) return@launch
-            _readerPages.value = pages
-            _readyPages.value = pages.indices.toSet()
-            if (!openedEarly) {
-                // Resume from lastReadPage if valid (when opened early the user may already have turned pages)
-                _currentReaderPage.value = if (chapter.lastReadPage in pages.indices) chapter.lastReadPage else 0
-            }
-            _isLoadingPages.value = false
-
-            // Warm the next chapter's page cache so goToNextChapter opens instantly
             val list = currentChapters.value
             val index = list.indexOfFirst { it.id == chapter.id }
-            list.getOrNull(index + 1)?.takeIf { index != -1 }?.let { next ->
-                repository.getChapterPages(next.id, next.fileUriString)
-            }
+            val next = list.getOrNull(index + 1)?.takeIf { index != -1 }
+            // Keep only this chapter and the next one open; opening reads just the archive's table of contents
+            repository.retainOpenChapters(setOfNotNull(chapter.fileUriString, next?.fileUriString))
+            val pages = repository.openChapterPages(chapter.fileUriString)
+            if (_selectedChapter.value?.id != chapter.id) return@launch
+            _readerPages.value = pages
+            // Resume from lastReadPage if valid
+            _currentReaderPage.value = if (chapter.lastReadPage in pages.indices) chapter.lastReadPage else 0
+            _isLoadingPages.value = false
+
+            // Open the next chapter now so goToNextChapter is instant
+            next?.let { repository.openChapterPages(it.fileUriString) }
         }
     }
 
@@ -697,30 +682,33 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setCustomCoverFromFile(mangaId: String, coverFile: File) {
+    fun setCustomCoverFromPage(mangaId: String, page: PageRef) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                // Save a scaled copy: coverFile is an extracted page in the chapter cache, which "clear cache" deletes
+                val bytes = repository.readPageBytes(page) ?: return@launch
                 val destFile = File(
                     File(getApplication<Application>().filesDir, "custom_covers"),
                     "cover_${mangaId.hashCode()}_${System.currentTimeMillis()}.jpg"
                 )
-                val path = if (com.example.data.storage.CoverImages.saveScaled({ coverFile.inputStream() }, destFile)) {
-                    destFile.absolutePath
-                } else {
-                    coverFile.absolutePath
+                // Scaled JPEG normally; the original bytes if this device can't decode the format
+                if (!com.example.data.storage.CoverImages.saveScaled({ bytes.inputStream() }, destFile)) {
+                    destFile.parentFile?.mkdirs()
+                    destFile.writeBytes(bytes)
                 }
-                repository.updateMangaCover(mangaId, path)
+                repository.updateMangaCover(mangaId, destFile.absolutePath)
                 _selectedManga.value?.let { current ->
                     if (current.id == mangaId) {
-                        _selectedManga.value = current.copy(coverPath = path)
+                        _selectedManga.value = current.copy(coverPath = destFile.absolutePath)
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("MangaViewModel", "Failed to set custom cover from file", e)
+                android.util.Log.e("MangaViewModel", "Failed to set custom cover from page", e)
             }
         }
     }
+
+    /** Page bytes for saving to the gallery; null if the page can't be read. */
+    suspend fun readPageBytes(page: PageRef): ByteArray? = repository.readPageBytes(page)
 
     // ==========================================
     // Statistics Actions
