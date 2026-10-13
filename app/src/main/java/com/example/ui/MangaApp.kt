@@ -23,6 +23,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -179,6 +185,12 @@ fun MangaApp(
                 label = "screen_navigation_transition",
                 modifier = Modifier.fillMaxSize()
             ) { screen ->
+                // Edge-to-edge draws into the camera cutout; in landscape it sits on a side edge that
+                // status/navigation bar padding doesn't cover. The reader handles its own insets.
+                val cutoutSafe = if (screen == AppScreen.READER) Modifier else Modifier
+                    .background(MaterialTheme.colorScheme.background)
+                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                Box(modifier = Modifier.fillMaxSize().then(cutoutSafe)) {
                 when (screen) {
                     AppScreen.LOCKED -> {
                         PinLockScreen(
@@ -294,6 +306,7 @@ fun MangaApp(
                             }
                         }
                     }
+                }
                 }
             }
         }

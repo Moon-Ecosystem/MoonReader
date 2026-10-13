@@ -34,9 +34,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -112,7 +120,7 @@ import com.example.ui.MangaViewModel
 import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ReaderScreen(
     manga: Manga,
@@ -143,7 +151,7 @@ fun ReaderScreen(
         }
     }
 
-    // Hide mobile status bar in reading mode (Full-screen immersive reading)
+    // Immersive reading: hide status and navigation bars; a swipe from the edge shows them transiently
     DisposableEffect(Unit) {
         val activity = context as? Activity
         val window = activity?.window
@@ -153,13 +161,13 @@ fun ReaderScreen(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             // No legacy FLAG_FULLSCREEN: mixed with the insets controller it left stale zero
             // status-bar insets after exit, so screens drew under the clock
-            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
             val act = context as? Activity
             val win = act?.window
             if (win != null) {
-                WindowCompat.getInsetsController(win, win.decorView).show(WindowInsetsCompat.Type.statusBars())
+                WindowCompat.getInsetsController(win, win.decorView).show(WindowInsetsCompat.Type.systemBars())
                 ViewCompat.requestApplyInsets(win.decorView)
             }
         }
@@ -318,7 +326,12 @@ fun ReaderScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .statusBarsPadding()
+                            // Bars are hidden here, so plain statusBars insets are 0: reserve their space
+                            // and the camera cutout (top in portrait, side in landscape) explicitly
+                            .windowInsetsPadding(
+                                WindowInsets.statusBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                            )
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -408,7 +421,10 @@ fun ReaderScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
+                            .windowInsetsPadding(
+                                WindowInsets.navigationBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                                    .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
+                            )
                             .padding(horizontal = 14.dp, vertical = 4.dp)
                     ) {
                         // Slim Slider Row with inline badge counter
