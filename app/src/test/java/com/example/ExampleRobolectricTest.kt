@@ -261,4 +261,32 @@ class ExampleRobolectricTest {
     assertEquals(1, todayActivity.chaptersCompleted)
     assertTrue(todayActivity.intensity >= 2)
   }
+
+  @Test
+  fun `returning to the same chapter within 5 minutes continues the session`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = com.example.data.db.AppDatabase.getDatabase(context)
+    val repo = com.example.data.repository.StatisticsRepository(db.statisticsDao(), db.mangaDao(), PreferencesManager(context))
+    repo.clearStatistics()
+
+    val t = 1_000_000_000L
+    val min = 60_000L
+    suspend fun read(ch: String, start: Long, end: Long, pages: Int) = repo.recordSession(
+      mangaId = "m", chapterId = ch, chapterTitle = ch, startedAt = start, endedAt = end,
+      startPage = 0, endPage = pages, pagesProgressed = pages, completedChapter = false
+    )
+
+    read("ch1", t, t + 10 * min, 5)
+    read("ch1", t + 14 * min, t + 20 * min, 3) // 4 min gap: merged
+    var sessions = db.statisticsDao().getAllSessionsOnce()
+    assertEquals(1, sessions.size)
+    assertEquals(8, sessions[0].pagesProgressed)
+    assertEquals(16 * min, sessions[0].durationMillis) // active time only, not the gap
+    assertEquals(t + 20 * min, sessions[0].endedAt)
+
+    read("ch1", t + 26 * min, t + 30 * min, 2) // 6 min gap: new session
+    read("ch2", t + 31 * min, t + 35 * min, 2) // other chapter: new session
+    sessions = db.statisticsDao().getAllSessionsOnce()
+    assertEquals(3, sessions.size)
+  }
 }

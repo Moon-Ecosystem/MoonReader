@@ -37,6 +37,10 @@ class StatisticsRepository(
 ) {
     val allSessions: Flow<List<ReadingSessionEntity>> = statisticsDao.getAllSessions()
 
+    private companion object {
+        const val SESSION_MERGE_GAP_MILLIS = 5 * 60 * 1000L
+    }
+
     /**
      * Persist a completed reading session to the database if statistics tracking is enabled.
      */
@@ -49,16 +53,32 @@ class StatisticsRepository(
         startPage: Int,
         endPage: Int,
         pagesProgressed: Int,
-        completedChapter: Boolean
+        completedChapter: Boolean,
+        // Active reading time; less than endedAt - startedAt when the reader sat idle
+        durationMillis: Long = endedAt - startedAt
     ): Long = withContext(Dispatchers.IO) {
         if (!preferencesManager.trackStatistics.value) {
             return@withContext -1L
         }
 
-        val duration = (endedAt - startedAt).coerceAtLeast(0L)
+        val duration = durationMillis.coerceAtLeast(0L)
         // Discard trivial empty sessions (< 2 seconds with 0 pages and not completed)
         if (duration < 2000L && pagesProgressed <= 0 && !completedChapter) {
             return@withContext -1L
+        }
+
+        // Back to the same chapter within 5 minutes (e.g. after a quick app switch): same session
+        val last = statisticsDao.getLatestSession()
+        if (last != null && last.chapterId == chapterId && startedAt - last.endedAt in 0..SESSION_MERGE_GAP_MILLIS) {
+            return@withContext statisticsDao.insertSession(
+                last.copy(
+                    endedAt = endedAt,
+                    durationMillis = last.durationMillis + duration,
+                    endPage = maxOf(last.endPage, endPage),
+                    pagesProgressed = last.pagesProgressed + pagesProgressed.coerceAtLeast(0),
+                    completedChapter = last.completedChapter || completedChapter
+                )
+            )
         }
 
         val session = ReadingSessionEntity(

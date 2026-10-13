@@ -60,6 +60,9 @@ internal fun sortLibrary(list: List<Manga>, sort: LibrarySort, ascending: Boolea
     return list.sortedWith(directed.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 }
 
+/** Id prefix for a file opened from another app rather than from the library. */
+private const val EXTERNAL_PREFIX = "external:"
+
 class MangaViewModel(application: Application) : AndroidViewModel(application) {
     val preferencesManager = PreferencesManager(application)
     private val database = AppDatabase.getDatabase(application)
@@ -395,7 +398,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resumeReadingSession() {
-        if (activeSessionChapterId == null) return
+        if (activeSessionChapterId == null) {
+            // The session was saved when the app went to the background: start a new one from this page
+            val chapter = _selectedChapter.value?.takeUnless { it.isExternal } ?: return
+            val manga = _selectedManga.value ?: return
+            startReadingSession(manga.id, chapter.id, chapter.title, _currentReaderPage.value)
+            return
+        }
         activeSessionLastActivityTimestamp = System.currentTimeMillis()
         activeSessionIsPaused = false
     }
@@ -435,7 +444,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 chapterId = chapterId,
                 chapterTitle = chapterTitle,
                 startedAt = startedAt,
-                endedAt = startedAt + totalDuration,
+                endedAt = now,
+                durationMillis = totalDuration,
                 startPage = startPage,
                 endPage = maxPage,
                 pagesProgressed = pagesProgressed,
@@ -444,10 +454,19 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Opens a CBZ handed over by another app ("Open with"). It isn't in the library, so no progress or stats are saved. */
+    fun openExternalFile(uri: String, name: String) {
+        val id = EXTERNAL_PREFIX + uri
+        _selectedManga.value = Manga(id = id, title = name, folderUriString = "", chapterCount = 1)
+        selectChapter(Chapter(id = id, mangaId = id, title = name, fileName = name, fileUriString = uri))
+    }
+
+    private val Chapter.isExternal get() = id.startsWith(EXTERNAL_PREFIX)
+
     fun selectChapter(chapter: Chapter) {
         _selectedChapter.value = chapter
         val manga = _selectedManga.value
-        if (manga != null) {
+        if (manga != null && !chapter.isExternal) {
             startReadingSession(
                 mangaId = manga.id,
                 chapterId = chapter.id,
@@ -461,6 +480,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeChapter() {
         endReadingSession()
+        // An opened file has no chapter list to return to
+        if (_selectedChapter.value?.isExternal == true) _selectedManga.value = null
         _selectedChapter.value = null
         _readerPages.value = emptyList()
         viewModelScope.launch { repository.retainOpenChapters(emptySet()) }
@@ -506,7 +527,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onPageChanged(pageIndex: Int) {
         _currentReaderPage.value = pageIndex
-        val chapter = _selectedChapter.value ?: return
+        val chapter = _selectedChapter.value?.takeUnless { it.isExternal } ?: return
         val manga = _selectedManga.value ?: return
         val total = _readerPages.value.size
 
