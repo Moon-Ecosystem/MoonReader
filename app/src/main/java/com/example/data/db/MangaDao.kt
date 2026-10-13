@@ -50,6 +50,12 @@ interface MangaDao {
     @Query("UPDATE chapter_progress SET isBookmarked = :isBookmarked, lastUpdatedTime = :time WHERE chapterId = :chapterId")
     suspend fun updateChapterBookmark(chapterId: String, isBookmarked: Boolean, time: Long)
 
+    @Query("SELECT * FROM chapter_progress")
+    fun getAllChapterProgress(): Flow<List<ChapterProgressEntity>>
+
+    @Query("SELECT * FROM chapter_progress")
+    suspend fun getAllChapterProgressOnce(): List<ChapterProgressEntity>
+
     @Query("DELETE FROM manga_library WHERE id = :id")
     suspend fun deleteManga(id: String)
 }

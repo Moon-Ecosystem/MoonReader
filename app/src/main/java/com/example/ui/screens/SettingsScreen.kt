@@ -22,12 +22,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -44,6 +46,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -83,8 +86,11 @@ fun SettingsScreen(
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
     val isAppLockEnabled by viewModel.preferencesManager.isAppLockEnabled.collectAsStateWithLifecycle()
     val cacheSize by viewModel.cacheSizeBytes.collectAsStateWithLifecycle()
+    val trackStatistics by viewModel.preferencesManager.trackStatistics.collectAsStateWithLifecycle()
+    val inactivitySeconds by viewModel.preferencesManager.inactivityThresholdSeconds.collectAsStateWithLifecycle()
 
     var pinDialogMode by remember { mutableStateOf<PinDialogMode?>(null) }
+    var showClearStatsDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -350,7 +356,102 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 4. App Lock & Security Card
+            // 4. Reading Statistics Card
+            SettingsHeader(title = "READING STATISTICS")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Track Reading Activity",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Log duration, pages, chapters read, and streaks",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = trackStatistics,
+                            onCheckedChange = { viewModel.setTrackStatistics(it) }
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    Text(
+                        text = "Inactivity Auto-Pause",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Pause timer when reader has no interaction",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(60 to "1 min", 120 to "2 min", 300 to "5 min").forEach { (secs, label) ->
+                            val isSelected = inactivitySeconds == secs
+                            OutlinedButton(
+                                onClick = { viewModel.setInactivityThresholdSeconds(secs) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent
+                                )
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    OutlinedButton(
+                        onClick = { showClearStatsDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Reset Reading Statistics",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 5. App Lock & Security Card
             SettingsHeader(title = "SECURITY")
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -523,6 +624,38 @@ fun SettingsScreen(
             verifyCurrentPin = { pin -> viewModel.verifyPin(pin) },
             saveNewPin = { pin -> viewModel.setNewPin(pin) },
             disableLock = { viewModel.disableAppLockDirect() }
+        )
+    }
+
+    if (showClearStatsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearStatsDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Reset Reading Statistics?") },
+            text = { Text("This will delete all recorded reading sessions and streaks. Your manga files, covers, and library will not be modified.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearStatistics()
+                        showClearStatsDialog = false
+                        coroutineScope.launch { snackbarHostState.showSnackbar("Reading statistics reset") }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Reset")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearStatsDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }

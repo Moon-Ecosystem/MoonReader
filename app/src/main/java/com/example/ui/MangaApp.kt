@@ -31,9 +31,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.Leaderboard
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -61,6 +63,7 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.ReaderScreen
 import com.example.ui.screens.SearchScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.StatisticsScreen
 import com.example.ui.theme.MangaReaderTheme
 
 private enum class AppScreen {
@@ -219,7 +222,7 @@ fun MangaApp(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .navigationBarsPadding()
-                                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
                                         horizontalArrangement = Arrangement.SpaceAround,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -229,6 +232,14 @@ fun MangaApp(
                                             icon = if (currentTab == NavTab.HOME) Icons.Filled.AutoStories else Icons.Outlined.AutoStories,
                                             label = "Library",
                                             testTag = "nav_tab_home"
+                                        )
+
+                                        CompactNavItem(
+                                            selected = currentTab == NavTab.STATISTICS,
+                                            onClick = { viewModel.selectTab(NavTab.STATISTICS) },
+                                            icon = if (currentTab == NavTab.STATISTICS) Icons.Filled.Leaderboard else Icons.Outlined.Leaderboard,
+                                            label = "Stats",
+                                            testTag = "nav_tab_statistics"
                                         )
 
                                         CompactNavItem(
@@ -273,6 +284,7 @@ fun MangaApp(
                                         viewModel = viewModel,
                                         onSelectFolderClick = { folderPickerLauncher.launch(null) }
                                     )
+                                    NavTab.STATISTICS -> StatisticsScreen(viewModel = viewModel)
                                     NavTab.SEARCH -> SearchScreen(viewModel = viewModel)
                                     NavTab.SETTINGS -> SettingsScreen(
                                         viewModel = viewModel,
@@ -306,7 +318,7 @@ private fun CompactNavItem(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 2.dp)
+            .padding(horizontal = 14.dp, vertical = 2.dp)
             .testTag(testTag)
     ) {
         Icon(

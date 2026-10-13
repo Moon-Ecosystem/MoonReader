@@ -4,14 +4,19 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AccentPreset
+import com.example.data.ActivityChartMetric
 import com.example.data.Chapter
+import com.example.data.DayActivity
 import com.example.data.Manga
 import com.example.data.ReaderFitMode
 import com.example.data.ReaderTheme
 import com.example.data.ReadingDirection
+import com.example.data.StatisticsUiState
+import com.example.data.TimePeriod
 import com.example.data.db.AppDatabase
 import com.example.data.preferences.PreferencesManager
 import com.example.data.repository.MangaRepository
+import com.example.data.repository.StatisticsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,9 +28,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.LocalDate
 
 enum class NavTab {
-    HOME, SEARCH, SETTINGS
+    HOME, STATISTICS, SEARCH, SETTINGS
 }
 
 enum class LibraryFilter {
@@ -36,6 +42,74 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     val preferencesManager = PreferencesManager(application)
     private val database = AppDatabase.getDatabase(application)
     val repository = MangaRepository(application, database.mangaDao(), preferencesManager)
+    val statisticsRepository = StatisticsRepository(database.statisticsDao(), database.mangaDao(), preferencesManager)
+
+    // Statistics UI filter state
+    private val _selectedTimePeriod = MutableStateFlow(TimePeriod.THIS_WEEK)
+    val selectedTimePeriod: StateFlow<TimePeriod> = _selectedTimePeriod.asStateFlow()
+
+    private val _selectedChartMetric = MutableStateFlow(ActivityChartMetric.READING_TIME)
+    val selectedChartMetric: StateFlow<ActivityChartMetric> = _selectedChartMetric.asStateFlow()
+
+    private val _calendarMonthOffset = MutableStateFlow(0)
+    val calendarMonthOffset: StateFlow<Int> = _calendarMonthOffset.asStateFlow()
+
+    private val _selectedCalendarDay = MutableStateFlow<DayActivity?>(null)
+    val selectedCalendarDay: StateFlow<DayActivity?> = _selectedCalendarDay.asStateFlow()
+
+    private data class StatsFilterBundle(
+        val period: TimePeriod,
+        val metric: ActivityChartMetric,
+        val monthOffset: Int,
+        val selectedDay: DayActivity?
+    )
+
+    private val statsFilterFlow = combine(
+        _selectedTimePeriod,
+        _selectedChartMetric,
+        _calendarMonthOffset,
+        _selectedCalendarDay
+    ) { period, metric, monthOffset, selectedDay ->
+        StatsFilterBundle(period, metric, monthOffset, selectedDay)
+    }
+
+    val statisticsUiState: StateFlow<StatisticsUiState> = combine(
+        statisticsRepository.allSessions,
+        statsFilterFlow,
+        repository.libraryManga,
+        database.mangaDao().getAllChapterProgress()
+    ) { sessions, filter, mangaList, chapterProgressList ->
+        val summary = statisticsRepository.computeSummary(sessions, filter.period)
+        val chartPoints = statisticsRepository.computeChartPoints(sessions, filter.period, filter.metric)
+        val (monthLabel, days) = statisticsRepository.computeCalendarDays(sessions, filter.monthOffset)
+        val comparison = statisticsRepository.computeComparison(sessions, filter.period)
+        val habits = statisticsRepository.computeHabits(sessions)
+        val seriesStats = statisticsRepository.computeSeriesStatistics(sessions, mangaList, chapterProgressList)
+        val libraryCounts = statisticsRepository.computeLibraryCounts(mangaList, chapterProgressList)
+        val recent = mangaList.filter { it.lastReadTime > 0L }.sortedByDescending { it.lastReadTime }.take(6)
+
+        StatisticsUiState(
+            selectedPeriod = filter.period,
+            selectedMetric = filter.metric,
+            isLoading = false,
+            summary = summary,
+            chartDataPoints = chartPoints,
+            calendarDays = days,
+            calendarMonthLabel = monthLabel,
+            calendarMonthOffset = filter.monthOffset,
+            selectedCalendarDay = filter.selectedDay ?: days.find { it.dateString == LocalDate.now().toString() },
+            comparison = comparison,
+            libraryCounts = libraryCounts,
+            mostReadSeries = seriesStats,
+            recentSeries = recent,
+            habits = habits,
+            hasSufficientHistory = sessions.isNotEmpty()
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = StatisticsUiState(isLoading = true)
+    )
 
     // App Lock state
     private val _isAppLocked = MutableStateFlow(
@@ -198,12 +272,139 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _sortChaptersAscending.value = !_sortChaptersAscending.value
     }
 
+    // ==========================================
+    // Reading Session Tracking
+    // ==========================================
+    private var activeSessionMangaId: String? = null
+    private var activeSessionChapterId: String? = null
+    private var activeSessionChapterTitle: String = ""
+    private var activeSessionStartedAt: Long = 0L
+    private var activeSessionStartPage: Int = 0
+    private var activeSessionMaxPageReached: Int = 0
+    private var activeSessionPagesProgressed: Int = 0
+    private var activeSessionChapterCompleted: Boolean = false
+    private var activeSessionLastActivityTimestamp: Long = 0L
+    private var activeSessionAccumulatedDuration: Long = 0L
+    private var activeSessionIsPaused: Boolean = false
+
+    fun startReadingSession(
+        mangaId: String,
+        chapterId: String,
+        chapterTitle: String,
+        startPage: Int,
+        alreadyCompleted: Boolean = false
+    ) {
+        if (activeSessionChapterId != null) {
+            endReadingSession()
+        }
+
+        val now = System.currentTimeMillis()
+        activeSessionMangaId = mangaId
+        activeSessionChapterId = chapterId
+        activeSessionChapterTitle = chapterTitle
+        activeSessionStartedAt = now
+        activeSessionLastActivityTimestamp = now
+        activeSessionStartPage = startPage
+        activeSessionMaxPageReached = startPage
+        activeSessionPagesProgressed = 0
+        activeSessionChapterCompleted = false
+        activeSessionAccumulatedDuration = 0L
+        activeSessionIsPaused = false
+    }
+
+    fun onReaderUserInteraction() {
+        if (activeSessionChapterId == null) return
+        val now = System.currentTimeMillis()
+        val inactivityTimeoutMillis = (preferencesManager.inactivityThresholdSeconds.value * 1000L).coerceAtLeast(30000L)
+        val elapsed = (now - activeSessionLastActivityTimestamp).coerceAtLeast(0L)
+
+        if (!activeSessionIsPaused) {
+            if (elapsed <= inactivityTimeoutMillis) {
+                activeSessionAccumulatedDuration += elapsed
+            }
+        }
+        activeSessionLastActivityTimestamp = now
+        activeSessionIsPaused = false
+    }
+
+    fun pauseReadingSession() {
+        if (activeSessionChapterId == null || activeSessionIsPaused) return
+        val now = System.currentTimeMillis()
+        val inactivityTimeoutMillis = (preferencesManager.inactivityThresholdSeconds.value * 1000L).coerceAtLeast(30000L)
+        val elapsed = (now - activeSessionLastActivityTimestamp).coerceAtLeast(0L)
+        if (elapsed <= inactivityTimeoutMillis) {
+            activeSessionAccumulatedDuration += elapsed
+        }
+        activeSessionIsPaused = true
+    }
+
+    fun resumeReadingSession() {
+        if (activeSessionChapterId == null) return
+        activeSessionLastActivityTimestamp = System.currentTimeMillis()
+        activeSessionIsPaused = false
+    }
+
+    fun endReadingSession() {
+        val chapterId = activeSessionChapterId ?: return
+        val mangaId = activeSessionMangaId ?: return
+        val chapterTitle = activeSessionChapterTitle
+        val startedAt = activeSessionStartedAt
+        val startPage = activeSessionStartPage
+        val maxPage = activeSessionMaxPageReached
+        val pagesProgressed = activeSessionPagesProgressed
+        val chapterCompleted = activeSessionChapterCompleted
+
+        val now = System.currentTimeMillis()
+        if (!activeSessionIsPaused) {
+            val inactivityTimeoutMillis = (preferencesManager.inactivityThresholdSeconds.value * 1000L).coerceAtLeast(30000L)
+            val elapsed = (now - activeSessionLastActivityTimestamp).coerceAtLeast(0L)
+            if (elapsed <= inactivityTimeoutMillis) {
+                activeSessionAccumulatedDuration += elapsed
+            }
+        }
+
+        val totalDuration = activeSessionAccumulatedDuration
+
+        activeSessionMangaId = null
+        activeSessionChapterId = null
+        activeSessionChapterTitle = ""
+        activeSessionStartedAt = 0L
+        activeSessionLastActivityTimestamp = 0L
+        activeSessionAccumulatedDuration = 0L
+        activeSessionIsPaused = false
+
+        viewModelScope.launch {
+            statisticsRepository.recordSession(
+                mangaId = mangaId,
+                chapterId = chapterId,
+                chapterTitle = chapterTitle,
+                startedAt = startedAt,
+                endedAt = startedAt + totalDuration,
+                startPage = startPage,
+                endPage = maxPage,
+                pagesProgressed = pagesProgressed,
+                completedChapter = chapterCompleted
+            )
+        }
+    }
+
     fun selectChapter(chapter: Chapter) {
         _selectedChapter.value = chapter
+        val manga = _selectedManga.value
+        if (manga != null) {
+            startReadingSession(
+                mangaId = manga.id,
+                chapterId = chapter.id,
+                chapterTitle = chapter.title,
+                startPage = chapter.lastReadPage,
+                alreadyCompleted = chapter.isRead
+            )
+        }
         loadChapterPages(chapter)
     }
 
     fun closeChapter() {
+        endReadingSession()
         _selectedChapter.value = null
         _readerPages.value = emptyList()
     }
@@ -241,7 +442,19 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         val chapter = _selectedChapter.value ?: return
         val manga = _selectedManga.value ?: return
         val total = _readerPages.value.size
-        val isCompleted = pageIndex >= total - 1 && total > 0
+
+        onReaderUserInteraction()
+        if (pageIndex > activeSessionMaxPageReached) {
+            val delta = pageIndex - activeSessionMaxPageReached
+            activeSessionPagesProgressed += delta
+            activeSessionMaxPageReached = pageIndex
+        }
+
+        val completionThreshold = if (total > 0) ((total - 1) * 0.9f).toInt().coerceAtLeast(total - 1) else 0
+        val isCompleted = (pageIndex >= completionThreshold && total > 0) || (pageIndex >= total - 1 && total > 0)
+        if (isCompleted && !chapter.isRead) {
+            activeSessionChapterCompleted = true
+        }
 
         viewModelScope.launch {
             repository.saveReadingProgress(
@@ -250,7 +463,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 chapterTitle = chapter.title,
                 page = pageIndex,
                 totalPages = total,
-                isCompleted = isCompleted
+                isCompleted = isCompleted || chapter.isRead
             )
         }
     }
@@ -378,6 +591,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun lockApp() {
+        pauseReadingSession()
         if (preferencesManager.isAppLockEnabled.value && preferencesManager.hasPin()) {
             _isAppLocked.value = true
         }
@@ -457,5 +671,38 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 android.util.Log.e("MangaViewModel", "Failed to set custom cover from file", e)
             }
         }
+    }
+
+    // ==========================================
+    // Statistics Actions
+    // ==========================================
+    fun setTimePeriod(period: TimePeriod) {
+        _selectedTimePeriod.value = period
+    }
+
+    fun setChartMetric(metric: ActivityChartMetric) {
+        _selectedChartMetric.value = metric
+    }
+
+    fun setCalendarMonthOffset(offset: Int) {
+        _calendarMonthOffset.value = offset
+    }
+
+    fun selectCalendarDay(day: DayActivity?) {
+        _selectedCalendarDay.value = day
+    }
+
+    fun clearStatistics() {
+        viewModelScope.launch {
+            statisticsRepository.clearStatistics()
+        }
+    }
+
+    fun setTrackStatistics(enabled: Boolean) {
+        preferencesManager.setTrackStatistics(enabled)
+    }
+
+    fun setInactivityThresholdSeconds(seconds: Int) {
+        preferencesManager.setInactivityThresholdSeconds(seconds)
     }
 }

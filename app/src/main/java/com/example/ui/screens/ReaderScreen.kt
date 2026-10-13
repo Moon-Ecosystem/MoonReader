@@ -96,6 +96,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
@@ -159,6 +162,28 @@ fun ReaderScreen(
                 @Suppress("DEPRECATION")
                 win.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
             }
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Lifecycle-aware Reading Session Tracking
+    DisposableEffect(lifecycleOwner, chapter.id) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    viewModel.pauseReadingSession()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.resumeReadingSession()
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.endReadingSession()
         }
     }
 
@@ -258,7 +283,10 @@ fun ReaderScreen(
                     pages = pages,
                     initialIndex = initialPageIndex,
                     onPageChanged = { viewModel.onPageChanged(it) },
-                    onCenterTap = { showControls = !showControls },
+                    onCenterTap = {
+                        viewModel.onReaderUserInteraction()
+                        showControls = !showControls
+                    },
                     onCenterLongPress = onCenterLongPress
                 )
             } else {
@@ -267,7 +295,10 @@ fun ReaderScreen(
                     initialIndex = initialPageIndex,
                     isRtl = readingDirection == ReadingDirection.RTL,
                     onPageChanged = { viewModel.onPageChanged(it) },
-                    onCenterTap = { showControls = !showControls },
+                    onCenterTap = {
+                        viewModel.onReaderUserInteraction()
+                        showControls = !showControls
+                    },
                     onCenterLongPress = onCenterLongPress
                 )
             }

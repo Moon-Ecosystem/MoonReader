@@ -128,6 +128,23 @@ class PreferencesManager(context: Context) {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    // Statistics preferences
+    private val _trackStatistics = MutableStateFlow(prefs.getBoolean(KEY_TRACK_STATISTICS, true))
+    val trackStatistics: StateFlow<Boolean> = _trackStatistics.asStateFlow()
+
+    private val _inactivityThresholdSeconds = MutableStateFlow(prefs.getInt(KEY_INACTIVITY_THRESHOLD, 120))
+    val inactivityThresholdSeconds: StateFlow<Int> = _inactivityThresholdSeconds.asStateFlow()
+
+    fun setTrackStatistics(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TRACK_STATISTICS, enabled).apply()
+        _trackStatistics.value = enabled
+    }
+
+    fun setInactivityThresholdSeconds(seconds: Int) {
+        prefs.edit().putInt(KEY_INACTIVITY_THRESHOLD, seconds).apply()
+        _inactivityThresholdSeconds.value = seconds
+    }
+
     companion object {
         private const val KEY_FOLDER_URI = "pref_folder_uri"
         private const val KEY_ACCENT = "pref_accent_preset"
@@ -138,5 +155,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_KEEP_SCREEN_ON = "pref_keep_screen_on"
         private const val KEY_APP_LOCK_ENABLED = "pref_app_lock_enabled"
         private const val KEY_PIN_HASH = "pref_pin_hash"
+        private const val KEY_TRACK_STATISTICS = "pref_track_statistics"
+        private const val KEY_INACTIVITY_THRESHOLD = "pref_inactivity_threshold_seconds"
     }
 }

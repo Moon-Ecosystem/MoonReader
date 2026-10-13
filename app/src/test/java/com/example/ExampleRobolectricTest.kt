@@ -89,4 +89,65 @@ class ExampleRobolectricTest {
     assertTrue(extracted[0].length() > 0)
     assertTrue(extracted[1].length() > 0)
   }
+
+  @Test
+  fun `statistics summary and streaks calculation`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = com.example.data.db.AppDatabase.getDatabase(context)
+    val prefs = PreferencesManager(context)
+    val repo = com.example.data.repository.StatisticsRepository(db.statisticsDao(), db.mangaDao(), prefs)
+
+    repo.clearStatistics()
+
+    val now = System.currentTimeMillis()
+    // Session 1: Today, 30 minutes, 25 pages, chapter completed
+    repo.recordSession(
+        mangaId = "manga_1",
+        chapterId = "ch_1",
+        chapterTitle = "Chapter 1",
+        startedAt = now - 1800000L,
+        endedAt = now,
+        startPage = 0,
+        endPage = 25,
+        pagesProgressed = 25,
+        completedChapter = true
+    )
+
+    // Session 2: Today, 15 minutes, 10 pages
+    repo.recordSession(
+        mangaId = "manga_1",
+        chapterId = "ch_2",
+        chapterTitle = "Chapter 2",
+        startedAt = now - 900000L,
+        endedAt = now,
+        startPage = 0,
+        endPage = 10,
+        pagesProgressed = 10,
+        completedChapter = false
+    )
+
+    val sessions = db.statisticsDao().getAllSessionsOnce()
+    assertEquals(2, sessions.size)
+
+    val summary = repo.computeSummary(sessions, com.example.data.TimePeriod.TODAY)
+    assertEquals(1, summary.chaptersCompleted)
+    assertEquals(35, summary.pagesProgressed)
+    assertEquals(1, summary.activeDaysCount)
+    assertEquals(1, summary.distinctSeriesCount)
+    assertTrue(summary.totalReadingTimeMillis >= 2700000L)
+    assertEquals(1, summary.currentStreakDays)
+
+    // Chart points verification
+    val chartPoints = repo.computeChartPoints(sessions, com.example.data.TimePeriod.THIS_WEEK, com.example.data.ActivityChartMetric.PAGES)
+    assertEquals(7, chartPoints.size)
+
+    // Calendar verification
+    val (_, calendarDays) = repo.computeCalendarDays(sessions, 0)
+    assertTrue(calendarDays.isNotEmpty())
+    val todayActivity = calendarDays.find { it.epochDay == java.time.LocalDate.now().toEpochDay() }
+    assertTrue(todayActivity != null)
+    assertEquals(35, todayActivity!!.pagesProgressed)
+    assertEquals(1, todayActivity.chaptersCompleted)
+    assertTrue(todayActivity.intensity >= 2)
+  }
 }
