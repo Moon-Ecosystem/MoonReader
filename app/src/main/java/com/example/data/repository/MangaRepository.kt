@@ -28,13 +28,32 @@ class MangaRepository(
     private val _scannedChapters = MutableStateFlow<Map<String, List<Chapter>>>(emptyMap())
     val scannedChapters: Flow<Map<String, List<Chapter>>> = _scannedChapters.asStateFlow()
 
-    private val _scannedManga = MutableStateFlow<List<Manga>>(emptyList())
+    // null until the first scan of this process finishes
+    private val _scannedManga = MutableStateFlow<List<Manga>?>(null)
 
     // Combined library flow: merges scanned filesystem structure with Room database progress & favorites
     val libraryManga: Flow<List<Manga>> = combine(
         _scannedManga,
         mangaDao.getAllManga()
     ) { scannedList, dbEntities ->
+        // Show the library saved by the last scan immediately instead of an empty home screen
+        // while the launch-time rescan runs; the scan result replaces it when ready.
+        if (scannedList == null) {
+            return@combine dbEntities.map { e ->
+                Manga(
+                    id = e.id,
+                    title = e.title,
+                    folderUriString = e.folderUriString,
+                    chapterCount = e.totalChapters,
+                    coverPath = e.coverPath,
+                    isFavorite = e.isFavorite,
+                    lastReadChapterId = e.lastReadChapterId,
+                    lastReadChapterTitle = e.lastReadChapterTitle,
+                    lastReadPage = e.lastReadPage,
+                    lastReadTime = e.lastReadTime
+                )
+            }.sortedBy { it.title }
+        }
         val entityMap = dbEntities.associateBy { it.id }
 
         scannedList.map { manga ->
@@ -152,7 +171,7 @@ class MangaRepository(
         if (existing != null) {
             mangaDao.updateCoverPath(mangaId, newCoverPath)
         } else {
-            val scanned = _scannedManga.value.find { it.id == mangaId }
+            val scanned = _scannedManga.value?.find { it.id == mangaId }
             if (scanned != null) {
                 mangaDao.insertOrUpdateManga(
                     MangaEntity(
@@ -166,7 +185,7 @@ class MangaRepository(
             }
         }
         // Update in-memory state so UI updates instantaneously
-        _scannedManga.value = _scannedManga.value.map {
+        _scannedManga.value = _scannedManga.value?.map {
             if (it.id == mangaId) it.copy(coverPath = newCoverPath) else it
         }
     }
