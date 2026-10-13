@@ -83,7 +83,16 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.DecayAnimationSpec
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.rememberSplineBasedDecay
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -1058,6 +1067,8 @@ fun ZoomableMangaPage(
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     val zoomScope = rememberCoroutineScope()
+    val flingDecay = rememberSplineBasedDecay<Offset>()
+    var flingJob by remember { mutableStateOf<Job?>(null) }
     val context = LocalContext.current
 
     val imageRequest = remember(page) {
@@ -1073,17 +1084,17 @@ fun ZoomableMangaPage(
             // 1. Pinch zoom & Pan gesture detector
             .pointerInput(page) {
                 detectMangaZoomAndPan(
-                    onTransform = { zoomChange, panChange ->
-                        val newScale = (scale * zoomChange).coerceIn(1f, 4.5f)
-                        scale = newScale
-                        if (newScale > 1f) {
-                            val maxOffsetX = (newScale - 1f) * size.width / 2f
-                            val maxOffsetY = (newScale - 1f) * size.height / 2f
-                            offsetX = (offsetX + panChange.x * newScale).coerceIn(-maxOffsetX, maxOffsetX)
-                            offsetY = (offsetY + panChange.y * newScale).coerceIn(-maxOffsetY, maxOffsetY)
-                        } else {
-                            offsetX = 0f
-                            offsetY = 0f
+                    onTransform = { zoomChange, panChange, centroid ->
+                        val (s, o) = zoomedTransform(scale, Offset(offsetX, offsetY), zoomChange, panChange, centroid, size)
+                        scale = s
+                        offsetX = o.x
+                        offsetY = o.y
+                    },
+                    onGestureStart = { flingJob?.cancel() },
+                    onFling = { v ->
+                        flingJob = zoomScope.flingPan(Offset(offsetX, offsetY), v, scale, size, flingDecay) {
+                            offsetX = it.x
+                            offsetY = it.y
                         }
                     },
                     isZoomed = { scale > 1.05f },
@@ -1204,6 +1215,8 @@ fun ZoomableWebtoonPage(
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     val zoomScope = rememberCoroutineScope()
+    val flingDecay = rememberSplineBasedDecay<Offset>()
+    var flingJob by remember { mutableStateOf<Job?>(null) }
     val context = LocalContext.current
 
     val imageRequest = remember(page) {
@@ -1218,17 +1231,17 @@ fun ZoomableWebtoonPage(
             .fillMaxWidth()
             .pointerInput(page) {
                 detectMangaZoomAndPan(
-                    onTransform = { zoomChange, panChange ->
-                        val newScale = (scale * zoomChange).coerceIn(1f, 4.5f)
-                        scale = newScale
-                        if (newScale > 1f) {
-                            val maxOffsetX = (newScale - 1f) * size.width / 2f
-                            val maxOffsetY = (newScale - 1f) * size.height / 2f
-                            offsetX = (offsetX + panChange.x * newScale).coerceIn(-maxOffsetX, maxOffsetX)
-                            offsetY = (offsetY + panChange.y * newScale).coerceIn(-maxOffsetY, maxOffsetY)
-                        } else {
-                            offsetX = 0f
-                            offsetY = 0f
+                    onTransform = { zoomChange, panChange, centroid ->
+                        val (s, o) = zoomedTransform(scale, Offset(offsetX, offsetY), zoomChange, panChange, centroid, size)
+                        scale = s
+                        offsetX = o.x
+                        offsetY = o.y
+                    },
+                    onGestureStart = { flingJob?.cancel() },
+                    onFling = { v ->
+                        flingJob = zoomScope.flingPan(Offset(offsetX, offsetY), v, scale, size, flingDecay) {
+                            offsetX = it.x
+                            offsetY = it.y
                         }
                     },
                     isZoomed = { scale > 1.05f }
@@ -1353,19 +1366,33 @@ private fun CoroutineScope.animateDoubleTapZoom(
 }
 
 private suspend fun PointerInputScope.detectMangaZoomAndPan(
-    onTransform: (zoomChange: Float, panChange: Offset) -> Unit,
+    onTransform: (zoomChange: Float, panChange: Offset, centroid: Offset) -> Unit,
     isZoomed: () -> Boolean,
     // Paged reader (Mihon-style): when a zoomed page is already at its left/right edge, a horizontal
     // one-finger drag toward that edge is left unconsumed so the pager turns the page
-    isAtHorizontalEdge: ((dragX: Float) -> Boolean)? = null
+    isAtHorizontalEdge: ((dragX: Float) -> Boolean)? = null,
+    // A new touch stops a running fling, like Mihon
+    onGestureStart: () -> Unit = {},
+    // Release velocity of a one-finger pan while zoomed, to keep the page gliding
+    onFling: (Velocity) -> Unit = {}
 ) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
+        onGestureStart()
         var yieldedToPager = false
+        var panned = false
+        val velocity = VelocityTracker()
         do {
             val event = awaitPointerEvent()
             val pointerCount = event.changes.size
             val currentlyZoomed = isZoomed()
+
+            // Only a one-finger pan's tail counts toward the fling; a pinch resets it
+            if (pointerCount == 1) {
+                event.changes.first().let { velocity.addPosition(it.uptimeMillis, it.position) }
+            } else {
+                velocity.resetTracking()
+            }
 
             if (pointerCount >= 2 || (currentlyZoomed && pointerCount == 1 && !yieldedToPager)) {
                 val zoomChange = if (pointerCount >= 2) event.calculateZoom() else 1f
@@ -1380,7 +1407,8 @@ private suspend fun PointerInputScope.detectMangaZoomAndPan(
                 }
 
                 if (zoomChange != 1f || panChange != Offset.Zero) {
-                    onTransform(zoomChange, panChange)
+                    onTransform(zoomChange, panChange, event.calculateCentroid(useCurrent = false))
+                    if (pointerCount == 1) panned = true
                     event.changes.forEach {
                         if (it.positionChanged()) {
                             it.consume()
@@ -1389,6 +1417,51 @@ private suspend fun PointerInputScope.detectMangaZoomAndPan(
                 }
             }
         } while (event.changes.any { it.pressed })
+
+        if (panned && !yieldedToPager && isZoomed()) onFling(velocity.calculateVelocity())
+    }
+}
+
+/**
+ * New scale and offset after a pinch/pan, Mihon-style: zoom around the fingers' centroid, pan 1:1 with the
+ * finger, and keep the page covering the view (max 5x like Mihon). The page is drawn with graphicsLayer,
+ * which scales around the view centre, so a content point under screen point p stays put when
+ * offset' = (p - centre) * (1 - k) + offset * k, with k = newScale / scale.
+ */
+private fun zoomedTransform(
+    scale: Float,
+    offset: Offset,
+    zoomChange: Float,
+    pan: Offset,
+    centroid: Offset,
+    size: IntSize
+): Pair<Float, Offset> {
+    val newScale = (scale * zoomChange).coerceIn(1f, 5f)
+    if (newScale <= 1f) return 1f to Offset.Zero
+    val k = newScale / scale
+    val center = Offset(size.width / 2f, size.height / 2f)
+    val raw = (centroid - center) * (1f - k) + offset * k + pan
+    return newScale to clampOffset(raw, newScale, size)
+}
+
+private fun clampOffset(offset: Offset, scale: Float, size: IntSize): Offset {
+    val maxX = (scale - 1f) * size.width / 2f
+    val maxY = (scale - 1f) * size.height / 2f
+    return Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
+}
+
+/** Lets a zoomed page keep gliding after a pan and slow down naturally, stopping at the page edges. */
+private fun CoroutineScope.flingPan(
+    start: Offset,
+    velocity: Velocity,
+    scale: Float,
+    size: IntSize,
+    decay: DecayAnimationSpec<Offset>,
+    apply: (Offset) -> Unit
+): Job = launch {
+    // Clamped every frame, so it simply rests at an edge if it reaches one
+    AnimationState(Offset.VectorConverter, start, Offset(velocity.x, velocity.y)).animateDecay(decay) {
+        apply(clampOffset(value, scale, size))
     }
 }
 
