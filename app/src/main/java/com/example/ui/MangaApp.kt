@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -169,13 +170,18 @@ fun MangaApp(
                             ) + fadeOut(tween(250)))
                         }
                         initialState == AppScreen.MANGA_DETAILS && targetState == AppScreen.MAIN_TABS -> {
-                            (slideInHorizontally(
-                                initialOffsetX = { -it / 3 },
-                                animationSpec = tween(320, easing = FastOutSlowInEasing)
-                            ) + fadeIn(tween(300))) togetherWith (slideOutHorizontally(
+                            // Back: the details page stays on top and slides away, uncovering the library,
+                            // which drifts in with a slight parallax instead of cross-fading over it
+                            val emphasized = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+                            val transform = (slideInHorizontally(
+                                initialOffsetX = { -it / 4 },
+                                animationSpec = tween(380, easing = emphasized)
+                            ) + fadeIn(tween(380), initialAlpha = 0.5f)) togetherWith slideOutHorizontally(
                                 targetOffsetX = { it },
-                                animationSpec = tween(320, easing = FastOutSlowInEasing)
-                            ) + fadeOut(tween(250)))
+                                animationSpec = tween(380, easing = emphasized)
+                            )
+                            transform.targetContentZIndex = -1f
+                            transform
                         }
                         else -> {
                             fadeIn(tween(250)) togetherWith fadeOut(tween(200))
