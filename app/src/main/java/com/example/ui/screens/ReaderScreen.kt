@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.os.Build
@@ -9,6 +11,7 @@ import android.provider.MediaStore
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -27,6 +30,7 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +62,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
@@ -110,6 +115,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -139,6 +145,7 @@ import kotlinx.coroutines.launch
 import com.example.data.PageRef
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -637,6 +644,22 @@ fun ReaderScreen(
                         }
                         showPageOptionsSheet = false
                     },
+                    onCopy = {
+                        val page = selectedPage
+                        if (page != null) {
+                            scope.launch {
+                                val bytes = viewModel.readPageBytes(page)
+                                val copied = bytes != null && withContext(Dispatchers.IO) {
+                                    copyImageToClipboard(context, bytes, page.displayName)
+                                }
+                                // Android 13+ shows its own "Copied" confirmation
+                                if (!copied || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                    Toast.makeText(context, if (copied) "Page copied" else "Failed to copy page", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        showPageOptionsSheet = false
+                    },
                     onSaveToGallery = {
                         val page = selectedPage
                         val pageNumber = selectedPageIndex + 1
@@ -764,17 +787,33 @@ fun ReaderScreen(
     }
 }
 
-/**
- * Tap & Hold Modal Sheet presenting the 2 requested options:
- * a. Set the current page as the cover
- * b. Save the page to gallery
- */
+@Composable
+private fun PageActionTile(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White.copy(alpha = 0.06f),
+        modifier = modifier.aspectRatio(1f)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1)
+        }
+    }
+}
+
+/** Long-press sheet for the active page: set as cover, copy the image, save it to the gallery. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PageOptionsBottomSheet(
     pageNumber: Int,
     onDismiss: () -> Unit,
     onSetAsCover: () -> Unit,
+    onCopy: () -> Unit,
     onSaveToGallery: () -> Unit
 ) {
     ModalBottomSheet(
@@ -830,94 +869,11 @@ private fun PageOptionsBottomSheet(
                 modifier = Modifier.padding(bottom = 14.dp)
             )
 
-            // Option 1: Set as cover
-            Surface(
-                onClick = onSetAsCover,
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White.copy(alpha = 0.06f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("option_set_cover")
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(14.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Palette,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Set Current Page as Cover",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Use this artwork as the manga thumbnail cover",
-                            fontSize = 12.sp,
-                            color = Color.LightGray
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Option 2: Save page to gallery
-            Surface(
-                onClick = onSaveToGallery,
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White.copy(alpha = 0.06f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("option_save_gallery")
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(14.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .background(Color(0xFF10B981).copy(alpha = 0.2f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            tint = Color(0xFF10B981),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Save Page to Gallery",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Export original full-resolution image to Photos / Gallery",
-                            fontSize = 12.sp,
-                            color = Color.LightGray
-                        )
-                    }
-                }
+            // Square action tiles side by side, as in Mihon
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PageActionTile(Icons.Default.Palette, "Set as cover", Modifier.weight(1f).testTag("option_set_cover"), onSetAsCover)
+                PageActionTile(Icons.Default.ContentCopy, "Copy", Modifier.weight(1f).testTag("option_copy"), onCopy)
+                PageActionTile(Icons.Default.Download, "Save", Modifier.weight(1f).testTag("option_save_gallery"), onSaveToGallery)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -1477,6 +1433,22 @@ private fun ShowIfSlow(delayMillis: Long = 400L, content: @Composable () -> Unit
         visible = true
     }
     if (visible) content()
+}
+
+/** Puts a page image on the clipboard through the app's FileProvider; only the latest copy is kept. */
+private fun copyImageToClipboard(context: Context, bytes: ByteArray, fileName: String): Boolean {
+    return try {
+        val dir = File(context.cacheDir, "clipboard").apply { deleteRecursively(); mkdirs() }
+        val file = File(dir, fileName.ifBlank { "page.jpg" })
+        file.writeBytes(bytes)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, fileName, uri))
+        true
+    } catch (e: Exception) {
+        android.util.Log.e("ReaderScreen", "Failed to copy page to clipboard", e)
+        false
+    }
 }
 
 /**
