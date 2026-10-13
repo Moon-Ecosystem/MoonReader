@@ -943,7 +943,8 @@ fun PagedReader(
     HorizontalPager(
         state = pagerState,
         reverseLayout = isRtl,
-        beyondViewportPageCount = 1, // decode neighbouring pages ahead of the swipe
+        // Decode two pages each side ahead of the swipe (~5 screen-sized bitmaps held, ~50 MB)
+        beyondViewportPageCount = 2,
         modifier = Modifier.fillMaxSize()
     ) { pageIndex ->
         val page = pages.getOrNull(pageIndex)
