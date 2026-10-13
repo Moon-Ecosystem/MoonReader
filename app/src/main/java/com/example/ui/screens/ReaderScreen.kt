@@ -120,6 +120,7 @@ import com.example.data.Manga
 import com.example.data.ReaderTheme
 import com.example.data.ReadingDirection
 import com.example.ui.MangaViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.data.PageRef
 import kotlinx.coroutines.Dispatchers
@@ -236,14 +237,16 @@ fun ReaderScreen(
     ) {
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Extracting CBZ pages…",
-                        color = readerTextColor,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                ShowIfSlow {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Opening chapter…",
+                            color = readerTextColor,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         } else if (pages.isEmpty()) {
@@ -1163,10 +1166,12 @@ fun ZoomableMangaPage(
             }
             else -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp)
-                    )
+                    ShowIfSlow {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1287,10 +1292,12 @@ fun ZoomableWebtoonPage(
                         .height(280.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                        modifier = Modifier.size(32.dp)
-                    )
+                    ShowIfSlow {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1340,6 +1347,20 @@ private suspend fun PointerInputScope.detectMangaZoomAndPan(
             }
         } while (event.changes.any { it.pressed })
     }
+}
+
+/**
+ * Shows [content] only if it is still in composition after [delayMillis]. Opening a chapter and decoding
+ * a page usually take well under that, so loading indicators no longer flash on every page.
+ */
+@Composable
+private fun ShowIfSlow(delayMillis: Long = 400L, content: @Composable () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(delayMillis)
+        visible = true
+    }
+    if (visible) content()
 }
 
 /**
