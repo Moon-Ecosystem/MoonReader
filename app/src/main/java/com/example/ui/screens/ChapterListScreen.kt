@@ -8,6 +8,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -99,7 +101,10 @@ fun ChapterListScreen(
 
     val chapters by viewModel.currentChapters.collectAsStateWithLifecycle()
     val sortAscending by viewModel.sortChaptersAscending.collectAsStateWithLifecycle()
+    // Real metadata from the first chapter's ComicInfo.xml; null when the archive has none
+    val info by viewModel.selectedMangaInfo.collectAsStateWithLifecycle()
     var showMenu by remember { mutableStateOf(false) }
+    var isSummaryExpanded by remember(manga.id) { mutableStateOf(false) }
 
     // Photo Picker for changing individual manga cover image
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -321,13 +326,42 @@ fun ChapterListScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            // Only facts known from the files: local manga have no genre/status/synopsis metadata
+                            // Only facts from the files: chapter count, plus ComicInfo.xml fields when present
                             Text(
                                 text = if (chapters.size == 1) "1 Chapter" else "${chapters.size} Chapters",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
                                 fontWeight = FontWeight.SemiBold
                             )
+
+                            val credits = info?.let { i ->
+                                listOfNotNull(
+                                    i.writer,
+                                    i.artist?.takeIf { it != i.writer },
+                                    i.year?.toString(),
+                                    i.publisher
+                                ).joinToString(" · ")
+                            }.orEmpty()
+                            if (credits.isNotEmpty()) {
+                                Text(
+                                    text = credits,
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            val genres = info?.genres.orEmpty()
+                            if (genres.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                                ) {
+                                    genres.forEach { GenreChip(label = it) }
+                                }
+                            }
                         }
                     }
                 }
@@ -353,6 +387,31 @@ fun ChapterListScreen(
                             MetaCol(label = "Chapters", value = "${chapters.size}")
                             MetaCol(label = "Read", value = "$readCount")
                         }
+                    }
+
+                    val summary = info?.summary
+                    if (summary != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = if (isSummaryExpanded) Int.MAX_VALUE else 3,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = 18.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isSummaryExpanded = !isSummaryExpanded }
+                        )
+                        Text(
+                            text = if (isSummaryExpanded) "Show less" else "Read more",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .clickable { isSummaryExpanded = !isSummaryExpanded }
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -432,6 +491,23 @@ fun ChapterListScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun GenreChip(label: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+        contentColor = MaterialTheme.colorScheme.primary
+    ) {
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
     }
 }
 

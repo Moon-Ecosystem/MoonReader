@@ -9,7 +9,10 @@ import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.MangaDao
 import com.example.data.db.MangaEntity
 import com.example.data.preferences.PreferencesManager
+import com.example.data.storage.CbzArchive
 import com.example.data.storage.CbzExtractor
+import com.example.data.storage.ComicInfo
+import com.example.data.storage.ComicInfoParser
 import com.example.data.storage.MangaScanner
 import com.example.data.storage.OpenArchives
 import com.example.data.storage.SampleMangaGenerator
@@ -122,6 +125,7 @@ class MangaRepository(
         val result = MangaScanner.scanFolder(context, folderUri)
         _scannedManga.value = result.mangaList
         _scannedChapters.value = result.chaptersByMangaId
+        comicInfoCache.clear()
 
         // Persist scanned manga headers to Room so metadata is retained
         val existingById = mangaDao.getAllManga().first().associateBy { it.id }
@@ -284,6 +288,23 @@ class MangaRepository(
         } else {
             mangaDao.updateChapterRead(chapterId, isRead, now)
         }
+    }
+
+    // chapter URI -> parsed ComicInfo (null = archive has none); cleared on rescan in case files changed
+    private val comicInfoCache = java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<ComicInfo>>()
+
+    /** Metadata from the chapter archive's ComicInfo.xml, or null if it has none or can't be read. */
+    suspend fun readComicInfo(chapterUriString: String): ComicInfo? = withContext(Dispatchers.IO) {
+        comicInfoCache.getOrPut(chapterUriString) {
+            val info = try {
+                CbzArchive.open(context, chapterUriString)?.use { archive ->
+                    archive.openComicInfo()?.use { ComicInfoParser.parse(it) }
+                }
+            } catch (e: Exception) {
+                null
+            }
+            java.util.Optional.ofNullable(info)
+        }.orElse(null)
     }
 
     /** Opens the chapter archive (kept open for reading) and returns its pages; empty if it can't be read. */

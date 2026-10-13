@@ -19,6 +19,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.preferences.PreferencesManager
 import com.example.data.repository.MangaRepository
 import com.example.data.repository.StatisticsRepository
+import com.example.data.storage.ComicInfo
 import com.example.data.storage.OpenArchives
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,8 +27,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
@@ -146,6 +149,18 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     val selectedManga: StateFlow<Manga?> = combine(_selectedManga, repository.libraryManga) { selected, library ->
         selected?.let { s -> library.find { it.id == s.id } ?: s }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // Metadata for the open manga from its first chapter's ComicInfo.xml (null when the archive has none);
+    // read on demand rather than during the library scan
+    val selectedMangaInfo: StateFlow<ComicInfo?> = combine(_selectedManga, repository.scannedChapters) { manga, chaptersById ->
+        manga?.let { chaptersById[it.id]?.firstOrNull()?.fileUriString }
+    }.distinctUntilChanged().flatMapLatest { firstChapterUri ->
+        if (firstChapterUri == null) flowOf(null)
+        else flow<ComicInfo?> {
+            emit(null)
+            emit(repository.readComicInfo(firstChapterUri))
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _selectedChapter = MutableStateFlow<Chapter?>(null)
     val selectedChapter: StateFlow<Chapter?> = _selectedChapter.asStateFlow()
