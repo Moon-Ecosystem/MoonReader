@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -150,18 +151,16 @@ fun ReaderScreen(
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
             insetsController.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // No legacy FLAG_FULLSCREEN: mixed with the insets controller it left stale zero
+            // status-bar insets after exit, so screens drew under the clock
             insetsController.hide(WindowInsetsCompat.Type.statusBars())
-            @Suppress("DEPRECATION")
-            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
         onDispose {
             val act = context as? Activity
             val win = act?.window
             if (win != null) {
-                val insetsController = WindowCompat.getInsetsController(win, win.decorView)
-                insetsController.show(WindowInsetsCompat.Type.statusBars())
-                @Suppress("DEPRECATION")
-                win.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                WindowCompat.getInsetsController(win, win.decorView).show(WindowInsetsCompat.Type.statusBars())
+                ViewCompat.requestApplyInsets(win.decorView)
             }
         }
     }
