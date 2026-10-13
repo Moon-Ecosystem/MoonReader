@@ -78,6 +78,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -432,21 +435,25 @@ fun ReaderScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Slider(
-                                value = currentPage.toFloat(),
-                                onValueChange = { viewModel.onPageChanged(it.toInt()) },
-                                valueRange = 0f..(total - 1).toFloat().coerceAtLeast(0f),
-                                steps = (total - 2).coerceAtLeast(0),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(28.dp)
-                                    .testTag("reader_page_slider"),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.22f)
+                            // RTL manga: page 1 starts at the right edge, matching the pager
+                            val sliderDirection = if (readingDirection == ReadingDirection.RTL) LayoutDirection.Rtl else LayoutDirection.Ltr
+                            CompositionLocalProvider(LocalLayoutDirection provides sliderDirection) {
+                                Slider(
+                                    value = currentPage.toFloat(),
+                                    onValueChange = { viewModel.onPageChanged(it.toInt()) },
+                                    valueRange = 0f..(total - 1).toFloat().coerceAtLeast(0f),
+                                    steps = (total - 2).coerceAtLeast(0),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(28.dp)
+                                        .testTag("reader_page_slider"),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = MaterialTheme.colorScheme.primary,
+                                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                                        inactiveTrackColor = Color.White.copy(alpha = 0.22f)
+                                    )
                                 )
-                            )
+                            }
 
                             Spacer(modifier = Modifier.width(8.dp))
 
