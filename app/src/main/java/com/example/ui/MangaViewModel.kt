@@ -17,6 +17,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.preferences.PreferencesManager
 import com.example.data.repository.MangaRepository
 import com.example.data.repository.StatisticsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
@@ -105,7 +107,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             habits = habits,
             hasSufficientHistory = sessions.isNotEmpty()
         )
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = StatisticsUiState(isLoading = true)
@@ -434,6 +436,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             val startPage = if (chapter.lastReadPage in pages.indices) chapter.lastReadPage else 0
             _currentReaderPage.value = startPage
             _isLoadingPages.value = false
+
+            // Warm the next chapter's page cache so goToNextChapter opens instantly
+            val list = currentChapters.value
+            val index = list.indexOfFirst { it.id == chapter.id }
+            list.getOrNull(index + 1)?.takeIf { index != -1 }?.let { next ->
+                repository.getChapterPages(next.id, next.fileUriString)
+            }
         }
     }
 

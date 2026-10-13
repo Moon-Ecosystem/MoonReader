@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -93,8 +94,9 @@ class MangaRepository(
         _scannedChapters.value = result.chaptersByMangaId
 
         // Persist scanned manga headers to Room so metadata is retained
+        val existingById = mangaDao.getAllManga().first().associateBy { it.id }
         val entities = result.mangaList.map { manga ->
-            val existing = mangaDao.getMangaByIdOnce(manga.id)
+            val existing = existingById[manga.id]
 
             // Resolve cover path with proper priority:
             // 1. If an explicit cover image file (cover.jpg/png) was found in the manga folder, use it!

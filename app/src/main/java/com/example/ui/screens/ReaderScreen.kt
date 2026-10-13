@@ -100,7 +100,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.example.data.Chapter
 import com.example.data.Manga
@@ -883,6 +884,7 @@ fun PagedReader(
     HorizontalPager(
         state = pagerState,
         reverseLayout = isRtl,
+        beyondViewportPageCount = 1, // decode neighbouring pages ahead of the swipe
         modifier = Modifier.fillMaxSize()
     ) { pageIndex ->
         val file = pages.getOrNull(pageIndex)
@@ -975,7 +977,6 @@ fun ZoomableMangaPage(
     val imageRequest = remember(file.absolutePath) {
         ImageRequest.Builder(context)
             .data(file)
-            .allowHardware(false)
             .crossfade(false)
             .build()
     }
@@ -1037,19 +1038,27 @@ fun ZoomableMangaPage(
             },
         contentAlignment = Alignment.Center
     ) {
-        SubcomposeAsyncImage(
+        var loadState by remember(file.absolutePath) {
+            mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+        }
+        // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
+        AsyncImage(
             model = imageRequest,
             contentDescription = "Manga Page ${pageIndex + 1}",
             contentScale = ContentScale.Fit,
-            loading = {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-            },
-            error = {
+            onState = { loadState = it },
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offsetX,
+                    translationY = offsetY
+                )
+        )
+        when (loadState) {
+            is AsyncImagePainter.State.Success -> Unit
+            is AsyncImagePainter.State.Error -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1078,16 +1087,16 @@ fun ZoomableMangaPage(
                         )
                     }
                 }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
+            }
+            else -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1109,7 +1118,6 @@ fun ZoomableWebtoonPage(
     val imageRequest = remember(file.absolutePath) {
         ImageRequest.Builder(context)
             .data(file)
-            .allowHardware(false)
             .crossfade(false)
             .build()
     }
@@ -1156,24 +1164,27 @@ fun ZoomableWebtoonPage(
                 )
             }
     ) {
-        SubcomposeAsyncImage(
+        var loadState by remember(file.absolutePath) {
+            mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+        }
+        // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
+        AsyncImage(
             model = imageRequest,
             contentDescription = "Page ${pageIndex + 1}",
             contentScale = ContentScale.FillWidth,
-            loading = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            },
-            error = {
+            onState = { loadState = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offsetX,
+                    translationY = offsetY
+                )
+        )
+        when (loadState) {
+            is AsyncImagePainter.State.Success -> Unit
+            is AsyncImagePainter.State.Error -> {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1196,16 +1207,21 @@ fun ZoomableWebtoonPage(
                         )
                     }
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
+            }
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

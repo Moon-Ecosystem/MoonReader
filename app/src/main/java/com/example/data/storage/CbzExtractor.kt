@@ -12,12 +12,16 @@ import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 object CbzExtractor {
     private const val TAG = "CbzExtractor"
+    private const val COPY_BUFFER = 64 * 1024
+    private const val COMPLETE_MARKER = ".complete"
+    private val extractionLocks = ConcurrentHashMap<String, Any>()
 
     private val IMAGE_EXTENSIONS = setOf(
         "jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "heic", "heif"
@@ -65,14 +69,76 @@ object CbzExtractor {
         }
     }
 
+    private fun isPageEntry(entry: ZipEntry): Boolean {
+        val normalized = entry.name.replace('\\', '/')
+        val fileName = normalized.substringAfterLast('/')
+        return !entry.isDirectory &&
+                !normalized.contains("__MACOSX") &&
+                !fileName.startsWith(".") &&
+                isImageFile(fileName)
+    }
+
+    /**
+     * Returns a random-access File for the archive plus a cleanup callback.
+     * content:// URIs are read in place through /proc/self/fd when the provider hands out a seekable
+     * file descriptor, avoiding a full copy of the archive; otherwise they are copied to a temp file.
+     */
+    private fun stageArchive(context: Context, chapterUriString: String): Pair<File, () -> Unit>? {
+        if (!chapterUriString.startsWith("content://")) {
+            val local = File(chapterUriString)
+            return if (local.exists() && local.isFile) local to {} else null
+        }
+        try {
+            val pfd = context.contentResolver.openFileDescriptor(Uri.parse(chapterUriString), "r")
+            if (pfd != null) {
+                val fdFile = File("/proc/self/fd/${pfd.fd}")
+                val seekable = try {
+                    ZipFile(fdFile, StandardCharsets.ISO_8859_1).close() // any byte sequence is a valid name
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+                if (seekable) return fdFile to { try { pfd.close() } catch (_: Exception) {} }
+                pfd.close()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Direct descriptor access failed for $chapterUriString: ${e.message}")
+        }
+        return try {
+            // Copy stream to temp cache file so we have a random-access seekable File
+            val temp = File(context.cacheDir, "temp_extract_${System.nanoTime()}.cbz")
+            openChapterInputStream(context, chapterUriString)?.use { input ->
+                FileOutputStream(temp).use { output -> input.copyTo(output, COPY_BUFFER) }
+            }
+            if (temp.exists() && temp.length() > 0L) {
+                temp to { temp.delete(); Unit }
+            } else {
+                temp.delete()
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stage archive file for $chapterUriString", e)
+            null
+        }
+    }
+
     /**
      * Extracts all image pages from a .cbz (ZIP) archive into a cache folder.
      * If the chapter has already been extracted, returns the cached files directly.
      */
     fun extractPages(context: Context, chapterUriString: String, chapterId: String): List<File> {
         val chapterCacheDir = getChapterCacheDir(context, chapterUriString)
+        // Serialise per chapter so a background prefetch and the reader never race on the same cache dir
+        synchronized(extractionLocks.getOrPut(chapterCacheDir.path) { Any() }) {
+            return extractPagesLocked(context, chapterUriString, chapterCacheDir)
+        }
+    }
 
-        // 1. Verify if valid cached pages exist
+    private fun extractPagesLocked(context: Context, chapterUriString: String, chapterCacheDir: File): List<File> {
+        // 1. Verify if valid cached pages exist (marker guards against a cache left half-written by a killed process)
+        if (chapterCacheDir.exists() && !File(chapterCacheDir, COMPLETE_MARKER).exists()) {
+            chapterCacheDir.deleteRecursively()
+        }
         if (chapterCacheDir.exists() && chapterCacheDir.isDirectory) {
             val existing = chapterCacheDir.listFiles()
                 ?.filter { it.isFile && it.length() > 0L && isImageFile(it.name) }
@@ -90,34 +156,8 @@ object CbzExtractor {
         chapterCacheDir.mkdirs()
 
         // 2. Prepare local archive file for ZipFile inspection
-        var tempArchiveFile: File? = null
-        val archiveFile: File? = try {
-            if (chapterUriString.startsWith("content://")) {
-                // Copy stream to temp cache file so we have a random-access seekable File
-                val temp = File(context.cacheDir, "temp_extract_${System.currentTimeMillis()}.cbz")
-                val stream = openChapterInputStream(context, chapterUriString)
-                if (stream != null) {
-                    stream.use { input ->
-                        FileOutputStream(temp).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    if (temp.exists() && temp.length() > 0L) {
-                        tempArchiveFile = temp
-                        temp
-                    } else {
-                        temp.delete()
-                        null
-                    }
-                } else null
-            } else {
-                val local = File(chapterUriString)
-                if (local.exists() && local.isFile) local else null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to stage archive file for $chapterUriString", e)
-            null
-        }
+        val staged = stageArchive(context, chapterUriString)
+        val archiveFile = staged?.first
 
         val extractedPages = mutableListOf<File>()
 
@@ -130,14 +170,7 @@ object CbzExtractor {
                     val entries = zipFile.entries().toList()
 
                     // Filter valid image entries
-                    val imageEntries = entries.filter { entry ->
-                        val normalized = entry.name.replace('\\', '/')
-                        val fileName = normalized.substringAfterLast('/')
-                        !entry.isDirectory &&
-                                !normalized.contains("__MACOSX") &&
-                                !fileName.startsWith(".") &&
-                                isImageFile(fileName)
-                    }.sortedWith { a, b ->
+                    val imageEntries = entries.filter { isPageEntry(it) }.sortedWith { a, b ->
                         NaturalOrderComparator.compare(a.name.replace('\\', '/'), b.name.replace('\\', '/'))
                     }
 
@@ -150,7 +183,7 @@ object CbzExtractor {
 
                             zipFile.getInputStream(entry).use { inStream ->
                                 FileOutputStream(outFile).use { outStream ->
-                                    inStream.copyTo(outStream)
+                                    inStream.copyTo(outStream, COPY_BUFFER)
                                 }
                             }
 
@@ -226,14 +259,15 @@ object CbzExtractor {
             }
         }
 
-        // Clean up temporary staged archive file
-        tempArchiveFile?.delete()
+        // Clean up temporary staged archive file / descriptor
+        staged?.second?.invoke()
 
         // If extraction completely failed, delete cache dir
         if (extractedPages.isEmpty()) {
             chapterCacheDir.deleteRecursively()
             Log.e(TAG, "No valid image pages could be extracted from: $chapterUriString")
         } else {
+            File(chapterCacheDir, COMPLETE_MARKER).createNewFile()
             Log.i(TAG, "Successfully extracted ${extractedPages.size} pages to ${chapterCacheDir.name}")
         }
 
@@ -267,10 +301,36 @@ object CbzExtractor {
             }
         }
 
-        // Otherwise extract the first page from the chapter
+        // Otherwise extract just the first page from the chapter archive
+        val staged = stageArchive(context, chapterUriString)
+        if (staged != null) {
+            try {
+                for (charset in SUPPORTED_CHARSETS) {
+                    val written = try {
+                        ZipFile(staged.first, charset).use { zip ->
+                            val first = zip.entries().asSequence().filter { isPageEntry(it) }
+                                .minWithOrNull { a, b ->
+                                    NaturalOrderComparator.compare(a.name.replace('\\', '/'), b.name.replace('\\', '/'))
+                                }
+                            first != null && zip.getInputStream(first).use { input ->
+                                FileOutputStream(coverFile).use { output -> input.copyTo(output, COPY_BUFFER) }
+                                true
+                            }
+                        }
+                    } catch (_: Exception) {
+                        false
+                    }
+                    if (written && coverFile.length() > 0L) return coverFile.absolutePath
+                }
+                coverFile.delete() // don't leave a partial cover that the cache check above would trust
+            } finally {
+                staged.second()
+            }
+        }
+
+        // Fallback: full extraction (handles archives ZipFile cannot read)
         try {
-            val pages = extractPages(context, chapterUriString, mangaId)
-            val firstPage = pages.firstOrNull()
+            val firstPage = extractPages(context, chapterUriString, mangaId).firstOrNull()
             if (firstPage != null && firstPage.exists() && firstPage.length() > 0L) {
                 firstPage.copyTo(coverFile, overwrite = true)
                 return coverFile.absolutePath

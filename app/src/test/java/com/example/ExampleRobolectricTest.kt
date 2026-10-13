@@ -91,6 +91,34 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `cover extracts only first page and incomplete page cache is rebuilt`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val cbz = java.io.File(context.cacheDir, "cover_test.cbz")
+    java.util.zip.ZipOutputStream(java.io.FileOutputStream(cbz)).use { zos ->
+      for (name in listOf("p10.jpg", "p2.jpg", "p1.jpg")) {
+        zos.putNextEntry(java.util.zip.ZipEntry(name))
+        zos.write(name.toByteArray())
+        zos.closeEntry()
+      }
+    }
+    val extractor = com.example.data.storage.CbzExtractor
+    val chapterDir = java.io.File(context.cacheDir, "chapters/" + extractor.getStableHash(cbz.absolutePath))
+
+    val cover = extractor.extractCover(context, cbz.absolutePath, "cover_test_manga")
+    assertEquals("p1.jpg", java.io.File(cover!!).readText())
+    assertFalse("cover must not unpack the whole chapter", chapterDir.exists())
+
+    val pages = extractor.extractPages(context, cbz.absolutePath, "ch")
+    assertEquals(listOf("p1.jpg", "p2.jpg", "p10.jpg"), pages.map { it.readText() })
+    assertTrue(java.io.File(chapterDir, ".complete").exists())
+
+    // Simulate a process killed mid-extraction: marker gone, a page missing
+    java.io.File(chapterDir, ".complete").delete()
+    pages.last().delete()
+    assertEquals(3, extractor.extractPages(context, cbz.absolutePath, "ch").size)
+  }
+
+  @Test
   fun `statistics summary and streaks calculation`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val db = com.example.data.db.AppDatabase.getDatabase(context)
