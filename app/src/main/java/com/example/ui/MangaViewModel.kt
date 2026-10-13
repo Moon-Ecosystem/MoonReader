@@ -7,6 +7,7 @@ import com.example.data.AccentPreset
 import com.example.data.ActivityChartMetric
 import com.example.data.Chapter
 import com.example.data.DayActivity
+import com.example.data.LibrarySort
 import com.example.data.Manga
 import com.example.data.PageRef
 import com.example.data.ReaderFitMode
@@ -18,6 +19,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.preferences.PreferencesManager
 import com.example.data.repository.MangaRepository
 import com.example.data.repository.StatisticsRepository
+import com.example.data.storage.ComicInfo
 import com.example.data.storage.OpenArchives
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,8 +27,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
@@ -42,6 +46,18 @@ enum class NavTab {
 
 enum class LibraryFilter {
     ALL, IN_PROGRESS, UNREAD, FAVORITES
+}
+
+/** Orders the library by [sort]; ties (e.g. never-read manga under "Last read") fall back to title A–Z. */
+internal fun sortLibrary(list: List<Manga>, sort: LibrarySort, ascending: Boolean): List<Manga> {
+    val primary: Comparator<Manga> = when (sort) {
+        LibrarySort.LAST_READ -> compareBy { it.lastReadTime }
+        LibrarySort.TITLE -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+        LibrarySort.TOTAL_CHAPTERS -> compareBy { it.chapterCount }
+        LibrarySort.UNREAD -> compareBy { (it.chapterCount - it.readChapterCount).coerceAtLeast(0) }
+    }
+    val directed = if (ascending) primary else primary.reversed()
+    return list.sortedWith(directed.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 }
 
 class MangaViewModel(application: Application) : AndroidViewModel(application) {
@@ -134,6 +150,18 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         selected?.let { s -> library.find { it.id == s.id } ?: s }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    // Metadata for the open manga from its first chapter's ComicInfo.xml (null when the archive has none);
+    // read on demand rather than during the library scan
+    val selectedMangaInfo: StateFlow<ComicInfo?> = combine(_selectedManga, repository.scannedChapters) { manga, chaptersById ->
+        manga?.let { chaptersById[it.id]?.firstOrNull()?.fileUriString }
+    }.distinctUntilChanged().flatMapLatest { firstChapterUri ->
+        if (firstChapterUri == null) flowOf(null)
+        else flow<ComicInfo?> {
+            emit(null)
+            emit(repository.readComicInfo(firstChapterUri))
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     private val _selectedChapter = MutableStateFlow<Chapter?>(null)
     val selectedChapter: StateFlow<Chapter?> = _selectedChapter.asStateFlow()
 
@@ -153,13 +181,19 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private val _libraryFilter = MutableStateFlow(LibraryFilter.ALL)
     val libraryFilter: StateFlow<LibraryFilter> = _libraryFilter.asStateFlow()
 
-    // Filtered manga for Home/Search
+    private val librarySortFlow = combine(
+        preferencesManager.librarySort,
+        preferencesManager.librarySortAscending
+    ) { sort, ascending -> sort to ascending }
+
+    // Filtered and sorted manga for Home/Search
     val filteredManga: StateFlow<List<Manga>> = combine(
         libraryManga,
         _searchQuery,
         _libraryFilter,
-        _currentTab
-    ) { mangaList, query, filter, tab ->
+        _currentTab,
+        librarySortFlow
+    ) { mangaList, query, filter, tab, (sort, ascending) ->
         var list = mangaList
         if (query.isNotBlank()) {
             list = list.filter { it.title.contains(query, ignoreCase = true) }
@@ -173,7 +207,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
                 LibraryFilter.FAVORITES -> list.filter { it.isFavorite }
             }
         }
-        list
+        sortLibrary(list, sort, ascending)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -257,6 +291,16 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setLibraryFilter(filter: LibraryFilter) {
         _libraryFilter.value = filter
+    }
+
+    /** Picking the active sort flips its direction (like Mihon); a new one starts in its natural direction. */
+    fun onLibrarySortSelected(sort: LibrarySort) {
+        val ascending = if (sort == preferencesManager.librarySort.value) {
+            !preferencesManager.librarySortAscending.value
+        } else {
+            sort.ascendingByDefault
+        }
+        preferencesManager.setLibrarySort(sort, ascending)
     }
 
     fun setSearchQuery(query: String) {

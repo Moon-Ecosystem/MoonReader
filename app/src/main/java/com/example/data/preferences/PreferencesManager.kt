@@ -3,6 +3,7 @@ package com.example.data.preferences
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.data.AccentPreset
+import com.example.data.LibrarySort
 import com.example.data.ReaderFitMode
 import com.example.data.ReaderTheme
 import com.example.data.ReadingDirection
@@ -54,6 +55,20 @@ class PreferencesManager(context: Context) {
     )
     val readerFitMode: StateFlow<ReaderFitMode> = _readerFitMode.asStateFlow()
 
+    private val _librarySort = MutableStateFlow(
+        try {
+            LibrarySort.valueOf(prefs.getString(KEY_LIBRARY_SORT, LibrarySort.LAST_READ.name) ?: LibrarySort.LAST_READ.name)
+        } catch (_: Exception) {
+            LibrarySort.LAST_READ
+        }
+    )
+    val librarySort: StateFlow<LibrarySort> = _librarySort.asStateFlow()
+
+    private val _librarySortAscending = MutableStateFlow(
+        prefs.getBoolean(KEY_LIBRARY_SORT_ASCENDING, _librarySort.value.ascendingByDefault)
+    )
+    val librarySortAscending: StateFlow<Boolean> = _librarySortAscending.asStateFlow()
+
     private val _volumeKeysNavigation = MutableStateFlow(prefs.getBoolean(KEY_VOLUME_KEYS, true))
     val volumeKeysNavigation: StateFlow<Boolean> = _volumeKeysNavigation.asStateFlow()
 
@@ -87,6 +102,15 @@ class PreferencesManager(context: Context) {
     fun setReaderFitMode(fitMode: ReaderFitMode) {
         prefs.edit().putString(KEY_READER_FIT, fitMode.name).apply()
         _readerFitMode.value = fitMode
+    }
+
+    fun setLibrarySort(sort: LibrarySort, ascending: Boolean) {
+        prefs.edit()
+            .putString(KEY_LIBRARY_SORT, sort.name)
+            .putBoolean(KEY_LIBRARY_SORT_ASCENDING, ascending)
+            .apply()
+        _librarySort.value = sort
+        _librarySortAscending.value = ascending
     }
 
     fun setVolumeKeysNavigation(enabled: Boolean) {
@@ -151,6 +175,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_READING_DIR = "pref_reading_direction"
         private const val KEY_READER_THEME = "pref_reader_theme"
         private const val KEY_READER_FIT = "pref_reader_fit_mode"
+        private const val KEY_LIBRARY_SORT = "pref_library_sort"
+        private const val KEY_LIBRARY_SORT_ASCENDING = "pref_library_sort_ascending"
         private const val KEY_VOLUME_KEYS = "pref_volume_keys"
         private const val KEY_KEEP_SCREEN_ON = "pref_keep_screen_on"
         private const val KEY_APP_LOCK_ENABLED = "pref_app_lock_enabled"

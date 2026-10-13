@@ -25,6 +25,15 @@ class CbzArchive private constructor(
         return zip.getInputStream(entries[page.index])
     }
 
+    /** The archive's ComicInfo.xml (preferring the top-level one), or null if it has none. */
+    fun openComicInfo(): InputStream? {
+        val candidates = zip.entries().asSequence()
+            .filter { !it.isDirectory && it.name.replace('\\', '/').substringAfterLast('/').equals("ComicInfo.xml", true) }
+            .toList()
+        val entry = candidates.minByOrNull { it.name.count { c -> c == '/' || c == '\\' } } ?: return null
+        return zip.getInputStream(entry)
+    }
+
     override fun close() {
         try {
             zip.close()
