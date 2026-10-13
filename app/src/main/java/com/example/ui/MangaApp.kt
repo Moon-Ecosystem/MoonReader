@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.WindowInsets
@@ -296,6 +297,9 @@ fun MangaApp(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(innerPadding)
+                                    // Tab screens pad for the system bars themselves; mark this padding's insets
+                                    // consumed so they don't add the status/nav bar height a second time
+                                    .consumeWindowInsets(innerPadding)
                             ) { tab ->
                                 when (tab) {
                                     NavTab.HOME -> HomeScreen(
