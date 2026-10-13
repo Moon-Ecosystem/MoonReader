@@ -30,6 +30,17 @@ enum class ReaderFitMode(val displayName: String) {
 }
 
 /**
+ * Library sort orders. [ascendingByDefault] is the direction used when an option is first picked
+ * (A–Z for titles; newest / largest first for the rest).
+ */
+enum class LibrarySort(val displayName: String, val ascendingByDefault: Boolean) {
+    LAST_READ("Last read", false),
+    TITLE("Title", true),
+    TOTAL_CHAPTERS("Total chapters", false),
+    UNREAD("Unread chapters", false)
+}
+
+/**
  * 5 Accent color presets matching the project specifications.
  */
 enum class AccentPreset(val displayName: String, val hex: Long, val darkHex: Long) {

@@ -41,6 +41,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircleOutline
@@ -64,7 +69,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -94,6 +99,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.data.LibrarySort
 import com.example.data.Manga
 import com.example.ui.LibraryFilter
 import com.example.ui.MangaViewModel
@@ -113,6 +119,8 @@ fun HomeScreen(
     val currentFilter by viewModel.libraryFilter.collectAsStateWithLifecycle()
     val continueManga by viewModel.continueReadingManga.collectAsStateWithLifecycle()
     val folderUri by viewModel.preferencesManager.folderUri.collectAsStateWithLifecycle()
+    val librarySort by viewModel.preferencesManager.librarySort.collectAsStateWithLifecycle()
+    val librarySortAscending by viewModel.preferencesManager.librarySortAscending.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -147,18 +155,25 @@ fun HomeScreen(
                         )
                     }
 
-                    IconButton(
-                        onClick = { viewModel.selectTab(NavTab.SEARCH) },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("home_search_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search Manga",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(22.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LibrarySortButton(
+                            sort = librarySort,
+                            ascending = librarySortAscending,
+                            onSelect = viewModel::onLibrarySortSelected
                         )
+                        IconButton(
+                            onClick = { viewModel.selectTab(NavTab.SEARCH) },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("home_search_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search Manga",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -173,13 +188,6 @@ fun HomeScreen(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (isScanning) {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
                 if ((folderUri.isNullOrBlank() || totalLibraryManga.isEmpty()) && !isScanning) {
                     // Sleek Empty State with direct folder picker (no sample buttons)
                     Box(
@@ -263,6 +271,13 @@ fun HomeScreen(
                         }
                     }
                 } else {
+                    // Pull down from the top of the library to rescan the folder; the indicator also
+                    // shows during the automatic launch scan
+                    PullToRefreshBox(
+                        isRefreshing = isScanning,
+                        onRefresh = { viewModel.scanLibrary() },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 108.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -308,7 +323,7 @@ fun HomeScreen(
                                     item {
                                         FilterPill(
                                             selected = currentFilter == LibraryFilter.ALL,
-                                            label = "Latest",
+                                            label = "All",
                                             onClick = { viewModel.setLibraryFilter(LibraryFilter.ALL) }
                                         )
                                     }
@@ -354,6 +369,7 @@ fun HomeScreen(
                             }
                         }
                     }
+                    }
                 }
             }
 
@@ -376,6 +392,60 @@ fun HomeScreen(
                         modifier = Modifier.size(30.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Sort menu for the library; the active option shows its direction and tapping it again flips it. */
+@Composable
+private fun LibrarySortButton(
+    sort: LibrarySort,
+    ascending: Boolean,
+    onSelect: (LibrarySort) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier
+                .size(36.dp)
+                .testTag("home_sort_button")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Sort,
+                contentDescription = "Sort library: ${sort.displayName}",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LibrarySort.entries.forEach { option ->
+                val active = option == sort
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = option.displayName,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    trailingIcon = if (active) {
+                        {
+                            Icon(
+                                imageVector = if (ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                                contentDescription = if (ascending) "Ascending" else "Descending",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else null,
+                    onClick = {
+                        onSelect(option)
+                        // Keep the menu open on the active option so its direction can be flipped and seen
+                        if (!active) expanded = false
+                    },
+                    modifier = Modifier.testTag("home_sort_${option.name}")
+                )
             }
         }
     }
