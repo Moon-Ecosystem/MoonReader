@@ -257,8 +257,13 @@ class MangaRepository(
         }
     }
 
-    suspend fun getChapterPages(chapterId: String, chapterUriString: String): List<File> = withContext(Dispatchers.IO) {
-        CbzExtractor.extractPages(context, chapterUriString, chapterId)
+    suspend fun getChapterPages(
+        chapterId: String,
+        chapterUriString: String,
+        startIndex: Int = 0,
+        listener: CbzExtractor.ExtractionListener? = null
+    ): List<File> = withContext(Dispatchers.IO) {
+        CbzExtractor.extractPages(context, chapterUriString, chapterId, startIndex, listener)
     }
 
     suspend fun clearCache(): Long = withContext(Dispatchers.IO) {

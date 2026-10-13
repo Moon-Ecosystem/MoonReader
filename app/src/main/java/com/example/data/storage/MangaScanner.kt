@@ -112,12 +112,16 @@ object MangaScanner {
             val coversDir = File(context.filesDir, "folder_covers")
             coversDir.mkdirs()
             val destFile = File(coversDir, "folder_cover_$hash.jpg")
-            // Rescans run on every launch; skip the copy when the cached cover is still current
-            if (destFile.length() > 0L && destFile.length() == coverDoc.size &&
+            // Rescans run on every launch; skip the work when the stored scaled cover is still current
+            if (CoverImages.isScaledCover(destFile) &&
                 coverDoc.lastModified > 0L && destFile.lastModified() >= coverDoc.lastModified
             ) {
                 return destFile.absolutePath
             }
+            if (CoverImages.saveScaled({ context.contentResolver.openInputStream(coverDoc.uri) }, destFile)) {
+                return destFile.absolutePath
+            }
+            // Format this device can't decode: keep the original bytes
             context.contentResolver.openInputStream(coverDoc.uri)?.use { input ->
                 FileOutputStream(destFile).use { output ->
                     input.copyTo(output)
@@ -128,6 +132,13 @@ object MangaScanner {
             Log.e(TAG, "Error copying folder cover for $mangaId", e)
             null
         }
+    }
+
+    /** Downscaled copy of a local folder cover (refreshed when the source changes); the original if scaling fails. */
+    private fun scaledLocalCover(context: Context, source: File, mangaId: String): String {
+        val dest = File(context.filesDir, "folder_covers/folder_cover_${CbzExtractor.getStableHash(mangaId)}.jpg")
+        if (CoverImages.isScaledCover(dest) && dest.lastModified() >= source.lastModified()) return dest.absolutePath
+        return if (CoverImages.saveScaled({ source.inputStream() }, dest)) dest.absolutePath else source.absolutePath
     }
 
     /**
@@ -370,7 +381,7 @@ object MangaScanner {
                     } ?: imageFiles.firstOrNull()
 
                     val (coverPath, hasFolderCover) = if (explicitCoverFile != null) {
-                        Pair(explicitCoverFile.absolutePath, true)
+                        Pair(scaledLocalCover(context, explicitCoverFile, mangaId), true)
                     } else {
                         val firstChapter = chapters.firstOrNull()
                         val extracted = firstChapter?.let {
@@ -422,7 +433,7 @@ object MangaScanner {
                 } ?: imageFiles.firstOrNull()
 
                 val (coverPath, hasFolderCover) = if (explicitCoverFile != null) {
-                    Pair(explicitCoverFile.absolutePath, true)
+                    Pair(scaledLocalCover(context, explicitCoverFile, mangaId), true)
                 } else {
                     val firstChapter = chapters.firstOrNull()
                     val extracted = firstChapter?.let {

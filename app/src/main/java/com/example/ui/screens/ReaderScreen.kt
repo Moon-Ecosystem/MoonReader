@@ -34,9 +34,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -70,6 +78,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -112,7 +123,7 @@ import com.example.ui.MangaViewModel
 import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ReaderScreen(
     manga: Manga,
@@ -127,6 +138,7 @@ fun ReaderScreen(
     val context = LocalContext.current
     val pages by viewModel.readerPages.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoadingPages.collectAsStateWithLifecycle()
+    val readyPages by viewModel.readyPages.collectAsStateWithLifecycle()
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val readerTheme by viewModel.preferencesManager.readerTheme.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
@@ -143,7 +155,7 @@ fun ReaderScreen(
         }
     }
 
-    // Hide mobile status bar in reading mode (Full-screen immersive reading)
+    // Immersive reading: hide status and navigation bars; a swipe from the edge shows them transiently
     DisposableEffect(Unit) {
         val activity = context as? Activity
         val window = activity?.window
@@ -153,13 +165,13 @@ fun ReaderScreen(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             // No legacy FLAG_FULLSCREEN: mixed with the insets controller it left stale zero
             // status-bar insets after exit, so screens drew under the clock
-            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
         }
         onDispose {
             val act = context as? Activity
             val win = act?.window
             if (win != null) {
-                WindowCompat.getInsetsController(win, win.decorView).show(WindowInsetsCompat.Type.statusBars())
+                WindowCompat.getInsetsController(win, win.decorView).show(WindowInsetsCompat.Type.systemBars())
                 ViewCompat.requestApplyInsets(win.decorView)
             }
         }
@@ -281,6 +293,7 @@ fun ReaderScreen(
             if (readingDirection == ReadingDirection.WEBTOON) {
                 WebtoonReader(
                     pages = pages,
+                    readyPages = readyPages,
                     initialIndex = initialPageIndex,
                     onPageChanged = { viewModel.onPageChanged(it) },
                     onCenterTap = {
@@ -292,6 +305,7 @@ fun ReaderScreen(
             } else {
                 PagedReader(
                     pages = pages,
+                    readyPages = readyPages,
                     initialIndex = initialPageIndex,
                     isRtl = readingDirection == ReadingDirection.RTL,
                     onPageChanged = { viewModel.onPageChanged(it) },
@@ -318,7 +332,12 @@ fun ReaderScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .statusBarsPadding()
+                            // Bars are hidden here, so plain statusBars insets are 0: reserve their space
+                            // and the camera cutout (top in portrait, side in landscape) explicitly
+                            .windowInsetsPadding(
+                                WindowInsets.statusBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                            )
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -408,7 +427,10 @@ fun ReaderScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
+                            .windowInsetsPadding(
+                                WindowInsets.navigationBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                                    .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
+                            )
                             .padding(horizontal = 14.dp, vertical = 4.dp)
                     ) {
                         // Slim Slider Row with inline badge counter
@@ -416,21 +438,25 @@ fun ReaderScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Slider(
-                                value = currentPage.toFloat(),
-                                onValueChange = { viewModel.onPageChanged(it.toInt()) },
-                                valueRange = 0f..(total - 1).toFloat().coerceAtLeast(0f),
-                                steps = (total - 2).coerceAtLeast(0),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(28.dp)
-                                    .testTag("reader_page_slider"),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = Color.White.copy(alpha = 0.22f)
+                            // RTL manga: page 1 starts at the right edge, matching the pager
+                            val sliderDirection = if (readingDirection == ReadingDirection.RTL) LayoutDirection.Rtl else LayoutDirection.Ltr
+                            CompositionLocalProvider(LocalLayoutDirection provides sliderDirection) {
+                                Slider(
+                                    value = currentPage.toFloat(),
+                                    onValueChange = { viewModel.onPageChanged(it.toInt()) },
+                                    valueRange = 0f..(total - 1).toFloat().coerceAtLeast(0f),
+                                    steps = (total - 2).coerceAtLeast(0),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(28.dp)
+                                        .testTag("reader_page_slider"),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = MaterialTheme.colorScheme.primary,
+                                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                                        inactiveTrackColor = Color.White.copy(alpha = 0.22f)
+                                    )
                                 )
-                            )
+                            }
 
                             Spacer(modifier = Modifier.width(8.dp))
 
@@ -862,6 +888,7 @@ private fun PageOptionsBottomSheet(
 @Composable
 fun PagedReader(
     pages: List<File>,
+    readyPages: Set<Int>,
     initialIndex: Int,
     isRtl: Boolean,
     onPageChanged: (Int) -> Unit,
@@ -891,6 +918,7 @@ fun PagedReader(
             ZoomableMangaPage(
                 file = file,
                 pageIndex = pageIndex,
+                ready = pageIndex in readyPages,
                 onLeftTap = {
                     coroutineScope.launch {
                         val target = if (isRtl) pagerState.currentPage + 1 else pagerState.currentPage - 1
@@ -923,6 +951,7 @@ fun PagedReader(
 @Composable
 fun WebtoonReader(
     pages: List<File>,
+    readyPages: Set<Int>,
     initialIndex: Int,
     onPageChanged: (Int) -> Unit,
     onCenterTap: () -> Unit,
@@ -944,6 +973,7 @@ fun WebtoonReader(
             ZoomableWebtoonPage(
                 file = file,
                 pageIndex = index,
+                ready = index in readyPages,
                 onCenterTap = onCenterTap,
                 onCenterLongPress = { onCenterLongPress(index, file) }
             )
@@ -963,6 +993,7 @@ fun WebtoonReader(
 fun ZoomableMangaPage(
     file: File,
     pageIndex: Int,
+    ready: Boolean,
     onLeftTap: () -> Unit,
     onRightTap: () -> Unit,
     onCenterTap: () -> Unit,
@@ -1041,20 +1072,23 @@ fun ZoomableMangaPage(
             mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
         }
         // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
-        AsyncImage(
-            model = imageRequest,
-            contentDescription = "Manga Page ${pageIndex + 1}",
-            contentScale = ContentScale.Fit,
-            onState = { loadState = it },
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
+        // Still being unpacked: loadState stays Empty, so the loading spinner below shows
+        if (ready) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = "Manga Page ${pageIndex + 1}",
+                contentScale = ContentScale.Fit,
+                onState = { loadState = it },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            )
+        }
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> {
@@ -1106,6 +1140,7 @@ fun ZoomableMangaPage(
 fun ZoomableWebtoonPage(
     file: File,
     pageIndex: Int,
+    ready: Boolean,
     onCenterTap: () -> Unit,
     onCenterLongPress: () -> Unit
 ) {
@@ -1167,20 +1202,23 @@ fun ZoomableWebtoonPage(
             mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
         }
         // AsyncImage + state overlay instead of SubcomposeAsyncImage: subcomposition per page is costly in pagers/lists
-        AsyncImage(
-            model = imageRequest,
-            contentDescription = "Page ${pageIndex + 1}",
-            contentScale = ContentScale.FillWidth,
-            onState = { loadState = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
-                    translationY = offsetY
-                )
-        )
+        // Still being unpacked: loadState stays Empty, so the loading spinner below shows
+        if (ready) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = "Page ${pageIndex + 1}",
+                contentScale = ContentScale.FillWidth,
+                onState = { loadState = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            )
+        }
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
             is AsyncImagePainter.State.Error -> {

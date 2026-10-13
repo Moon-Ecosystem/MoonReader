@@ -126,15 +126,80 @@ object CbzExtractor {
      * Extracts all image pages from a .cbz (ZIP) archive into a cache folder.
      * If the chapter has already been extracted, returns the cached files directly.
      */
-    fun extractPages(context: Context, chapterUriString: String, chapterId: String): List<File> {
-        val chapterCacheDir = getChapterCacheDir(context, chapterUriString)
-        // Serialise per chapter so a background prefetch and the reader never race on the same cache dir
-        synchronized(extractionLocks.getOrPut(chapterCacheDir.path) { Any() }) {
-            return extractPagesLocked(context, chapterUriString, chapterCacheDir)
+    /**
+     * Receives progress of a running extraction so the reader can open before the whole archive is unpacked.
+     * [onPlanned] delivers the final ordered page files (not yet written); [onPageReady] fires per page index once
+     * its file is complete. Called on the extracting thread.
+     */
+    class ExtractionListener(
+        val onPlanned: (List<File>) -> Unit,
+        val onPageReady: (Int) -> Unit
+    )
+
+    private class Progress {
+        var planned: List<File>? = null
+        val ready = HashSet<Int>()
+        val listeners = mutableListOf<ExtractionListener>()
+
+        fun plan(files: List<File>) = synchronized(this) {
+            planned = files
+            ready.clear()
+            listeners.forEach { it.onPlanned(files) }
+        }
+
+        fun pageReady(index: Int) = synchronized(this) {
+            ready.add(index)
+            listeners.forEach { it.onPageReady(index) }
+        }
+
+        fun subscribe(listener: ExtractionListener) = synchronized(this) {
+            planned?.let { files ->
+                listener.onPlanned(files)
+                ready.forEach(listener.onPageReady)
+            }
+            listeners.add(listener)
         }
     }
 
-    private fun extractPagesLocked(context: Context, chapterUriString: String, chapterCacheDir: File): List<File> {
+    private val inFlight = ConcurrentHashMap<String, Progress>()
+
+    fun extractPages(
+        context: Context,
+        chapterUriString: String,
+        chapterId: String,
+        startIndex: Int = 0,
+        listener: ExtractionListener? = null
+    ): List<File> {
+        val chapterCacheDir = getChapterCacheDir(context, chapterUriString)
+        val key = chapterCacheDir.path
+        // Another caller (e.g. next-chapter prefetch) may already be unpacking this chapter: follow its progress
+        if (listener != null) inFlight[key]?.subscribe(listener)
+        // Serialise per chapter so a background prefetch and the reader never race on the same cache dir
+        synchronized(extractionLocks.getOrPut(key) { Any() }) {
+            val progress = Progress()
+            if (listener != null) progress.listeners.add(listener)
+            inFlight[key] = progress
+            try {
+                return extractPagesLocked(context, chapterUriString, chapterCacheDir, startIndex, progress)
+            } finally {
+                inFlight.remove(key, progress)
+            }
+        }
+    }
+
+    /** Page indices ordered outward from [start]: the page the reader opens on is written first. */
+    internal fun priorityOrder(count: Int, start: Int): List<Int> {
+        val s = start.coerceIn(0, (count - 1).coerceAtLeast(0))
+        return (s until count) + (s - 1 downTo 0)
+    }
+
+    private fun extractPagesLocked(
+        context: Context,
+        chapterUriString: String,
+        chapterCacheDir: File,
+        startIndex: Int,
+        progress: Progress
+    ): List<File> {
         // 1. Verify if valid cached pages exist (marker guards against a cache left half-written by a killed process)
         if (chapterCacheDir.exists() && !File(chapterCacheDir, COMPLETE_MARKER).exists()) {
             chapterCacheDir.deleteRecursively()
@@ -176,23 +241,25 @@ object CbzExtractor {
 
                     if (imageEntries.isNotEmpty()) {
                         Log.d(TAG, "Found ${imageEntries.size} image entries using charset ${charset.name()}")
-                        var pageIndex = 1
-                        for (entry in imageEntries) {
+                        // The central directory gives the full page list up front, so the reader can open now
+                        val targets = imageEntries.mapIndexed { i, entry ->
                             val ext = entry.name.substringAfterLast('.', "jpg").lowercase(Locale.ROOT)
-                            val outFile = File(chapterCacheDir, String.format(Locale.US, "page_%04d.%s", pageIndex++, ext))
+                            File(chapterCacheDir, String.format(Locale.US, "page_%04d.%s", i + 1, ext))
+                        }
+                        progress.plan(targets)
 
-                            zipFile.getInputStream(entry).use { inStream ->
+                        // shortcut: fixed nearest-first order from the opening page; seeking far ahead waits
+                        // for that page's turn. Reprioritise on seek if large archives make this noticeable.
+                        for (i in priorityOrder(targets.size, startIndex)) {
+                            val outFile = targets[i]
+                            zipFile.getInputStream(imageEntries[i]).use { inStream ->
                                 FileOutputStream(outFile).use { outStream ->
                                     inStream.copyTo(outStream, COPY_BUFFER)
                                 }
                             }
-
-                            if (outFile.exists() && outFile.length() > 0L) {
-                                extractedPages.add(outFile)
-                            } else {
-                                outFile.delete()
-                            }
+                            if (outFile.length() > 0L) progress.pageReady(i) else outFile.delete()
                         }
+                        extractedPages.addAll(targets.filter { it.length() > 0L })
                         // Successfully extracted all pages!
                         break
                     }
@@ -271,7 +338,12 @@ object CbzExtractor {
             Log.i(TAG, "Successfully extracted ${extractedPages.size} pages to ${chapterCacheDir.name}")
         }
 
-        return extractedPages.sortedWith { a, b -> NaturalOrderComparator.compare(a.name, b.name) }
+        val result = extractedPages.sortedWith { a, b -> NaturalOrderComparator.compare(a.name, b.name) }
+        if (result != progress.planned) {
+            progress.plan(result)
+            result.indices.forEach { progress.pageReady(it) }
+        }
+        return result
     }
 
     /**
@@ -283,9 +355,19 @@ object CbzExtractor {
         coversDir.mkdirs()
         val coverFile = File(coversDir, "cover_$mangaHash.jpg")
 
-        if (coverFile.exists() && coverFile.length() > 0L) {
+        // Full-size covers from before downscaling are regenerated
+        if (CoverImages.isScaledCover(coverFile)) {
             return coverFile.absolutePath
         }
+
+        // Scaled JPEG normally; raw copy if this device can't decode the format (a big cover beats none)
+        fun writeCover(open: () -> InputStream?): Boolean =
+            CoverImages.saveScaled(open, coverFile) || try {
+                open()?.use { input -> FileOutputStream(coverFile).use { input.copyTo(it, COPY_BUFFER) } }
+                coverFile.length() > 0L
+            } catch (_: Exception) {
+                false
+            }
 
         // Check if chapter pages are already extracted in cache
         val chapterCache = getChapterCacheDir(context, chapterUriString)
@@ -293,11 +375,8 @@ object CbzExtractor {
             val firstPage = chapterCache.listFiles()
                 ?.filter { it.isFile && it.length() > 0L && isImageFile(it.name) }
                 ?.minWithOrNull { a, b -> NaturalOrderComparator.compare(a.name, b.name) }
-            if (firstPage != null) {
-                try {
-                    firstPage.copyTo(coverFile, overwrite = true)
-                    return coverFile.absolutePath
-                } catch (_: Exception) {}
+            if (firstPage != null && writeCover { firstPage.inputStream() }) {
+                return coverFile.absolutePath
             }
         }
 
@@ -312,15 +391,12 @@ object CbzExtractor {
                                 .minWithOrNull { a, b ->
                                     NaturalOrderComparator.compare(a.name.replace('\\', '/'), b.name.replace('\\', '/'))
                                 }
-                            first != null && zip.getInputStream(first).use { input ->
-                                FileOutputStream(coverFile).use { output -> input.copyTo(output, COPY_BUFFER) }
-                                true
-                            }
+                            first != null && writeCover { zip.getInputStream(first) }
                         }
                     } catch (_: Exception) {
                         false
                     }
-                    if (written && coverFile.length() > 0L) return coverFile.absolutePath
+                    if (written) return coverFile.absolutePath
                 }
                 coverFile.delete() // don't leave a partial cover that the cache check above would trust
             } finally {
@@ -331,8 +407,7 @@ object CbzExtractor {
         // Fallback: full extraction (handles archives ZipFile cannot read)
         try {
             val firstPage = extractPages(context, chapterUriString, mangaId).firstOrNull()
-            if (firstPage != null && firstPage.exists() && firstPage.length() > 0L) {
-                firstPage.copyTo(coverFile, overwrite = true)
+            if (firstPage != null && firstPage.length() > 0L && writeCover { firstPage.inputStream() }) {
                 return coverFile.absolutePath
             }
         } catch (e: Exception) {

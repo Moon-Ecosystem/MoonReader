@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -23,6 +24,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -163,13 +170,18 @@ fun MangaApp(
                             ) + fadeOut(tween(250)))
                         }
                         initialState == AppScreen.MANGA_DETAILS && targetState == AppScreen.MAIN_TABS -> {
-                            (slideInHorizontally(
-                                initialOffsetX = { -it / 3 },
-                                animationSpec = tween(320, easing = FastOutSlowInEasing)
-                            ) + fadeIn(tween(300))) togetherWith (slideOutHorizontally(
+                            // Back: the details page stays on top and slides away, uncovering the library,
+                            // which drifts in with a slight parallax instead of cross-fading over it
+                            val emphasized = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+                            val transform = (slideInHorizontally(
+                                initialOffsetX = { -it / 4 },
+                                animationSpec = tween(380, easing = emphasized)
+                            ) + fadeIn(tween(380), initialAlpha = 0.5f)) togetherWith slideOutHorizontally(
                                 targetOffsetX = { it },
-                                animationSpec = tween(320, easing = FastOutSlowInEasing)
-                            ) + fadeOut(tween(250)))
+                                animationSpec = tween(380, easing = emphasized)
+                            )
+                            transform.targetContentZIndex = -1f
+                            transform
                         }
                         else -> {
                             fadeIn(tween(250)) togetherWith fadeOut(tween(200))
@@ -179,6 +191,12 @@ fun MangaApp(
                 label = "screen_navigation_transition",
                 modifier = Modifier.fillMaxSize()
             ) { screen ->
+                // Edge-to-edge draws into the camera cutout; in landscape it sits on a side edge that
+                // status/navigation bar padding doesn't cover. The reader handles its own insets.
+                val cutoutSafe = if (screen == AppScreen.READER) Modifier else Modifier
+                    .background(MaterialTheme.colorScheme.background)
+                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                Box(modifier = Modifier.fillMaxSize().then(cutoutSafe)) {
                 when (screen) {
                     AppScreen.LOCKED -> {
                         PinLockScreen(
@@ -294,6 +312,7 @@ fun MangaApp(
                             }
                         }
                     }
+                }
                 }
             }
         }

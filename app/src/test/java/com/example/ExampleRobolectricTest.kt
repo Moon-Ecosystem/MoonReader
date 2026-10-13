@@ -11,9 +11,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@GraphicsMode(GraphicsMode.Mode.NATIVE) // real image decoding, so fake page bytes exercise the cover fallback
 class ExampleRobolectricTest {
 
   @Test
@@ -116,6 +118,35 @@ class ExampleRobolectricTest {
     java.io.File(chapterDir, ".complete").delete()
     pages.last().delete()
     assertEquals(3, extractor.extractPages(context, cbz.absolutePath, "ch").size)
+  }
+
+  @Test
+  fun `progressive extraction plans pages first and writes from the resume page outward`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val cbz = java.io.File(context.cacheDir, "progressive_test.cbz")
+    java.util.zip.ZipOutputStream(java.io.FileOutputStream(cbz)).use { zos ->
+      for (i in 1..6) {
+        zos.putNextEntry(java.util.zip.ZipEntry("p$i.jpg"))
+        zos.write("page $i".toByteArray())
+        zos.closeEntry()
+      }
+    }
+    val extractor = com.example.data.storage.CbzExtractor
+    var planned: List<java.io.File>? = null
+    var anyWrittenAtPlan = true
+    val readyOrder = mutableListOf<Int>()
+    val listener = com.example.data.storage.CbzExtractor.ExtractionListener(
+      onPlanned = { files -> planned = files; anyWrittenAtPlan = files.any { it.exists() } },
+      onPageReady = { i -> assertTrue("page $i reported before written", planned!![i].length() > 0); readyOrder += i }
+    )
+
+    val pages = extractor.extractPages(context, cbz.absolutePath, "ch", startIndex = 3, listener = listener)
+
+    assertEquals(6, planned!!.size)
+    assertFalse("plan must arrive before any page is written", anyWrittenAtPlan)
+    assertEquals(listOf(3, 4, 5, 2, 1, 0), readyOrder)
+    assertEquals(planned, pages)
+    assertEquals(listOf(0, 1, 2, 3, 4, 5).map { "page ${it + 1}" }, pages.map { it.readText() })
   }
 
   @Test
