@@ -23,10 +23,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** "Open with MangaReader": reads the CBZ another app handed over. */
+    // singleTask: a running app gets "Open with" files and the AniList login redirect here
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openViewIntent(intent)
+    }
+
+    /** "Open with MangaReader": reads the CBZ another app handed over; or finishes the AniList login. */
     private fun openViewIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
+        if (uri.scheme == "mangareader" && uri.host == "anilist-auth") {
+            // Implicit grant: the token comes in the fragment, e.g. #access_token=...&token_type=Bearer
+            val token = uri.fragment?.split('&')
+                ?.firstOrNull { it.startsWith("access_token=") }
+                ?.substringAfter('=')
+            viewModel.completeAniListLogin(token)
+            return
+        }
         val name = runCatching {
             contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                 if (c.moveToFirst()) c.getString(0) else null

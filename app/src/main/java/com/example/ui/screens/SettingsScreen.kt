@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +68,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.AccentPreset
 import com.example.data.ReadingDirection
+import com.example.data.tracking.AniListApi
+import android.content.Intent
+import android.net.Uri
 import com.example.ui.MangaViewModel
 import com.example.ui.components.PinDialogMode
 import com.example.ui.components.PinSetupDialog
@@ -86,6 +90,9 @@ fun SettingsScreen(
     val isAppLockEnabled by viewModel.preferencesManager.isAppLockEnabled.collectAsStateWithLifecycle()
     val trackStatistics by viewModel.preferencesManager.trackStatistics.collectAsStateWithLifecycle()
     val inactivitySeconds by viewModel.preferencesManager.inactivityThresholdSeconds.collectAsStateWithLifecycle()
+    val aniListUser by viewModel.preferencesManager.aniListUserName.collectAsStateWithLifecycle()
+    val trackAutoUpdate by viewModel.preferencesManager.trackAutoUpdate.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     var pinDialogMode by remember { mutableStateOf<PinDialogMode?>(null) }
     var showClearStatsDialog by remember { mutableStateOf(false) }
@@ -353,6 +360,74 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             // 4. Reading Statistics Card
+            SettingsHeader(title = "TRACKING")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "AniList",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = aniListUser?.let { "Logged in as $it" } ?: "Sync reading progress to your list",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (aniListUser == null) {
+                            Button(
+                                onClick = {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AniListApi.LOGIN_URL)))
+                                },
+                                modifier = Modifier.testTag("anilist_login")
+                            ) { Text("Log in") }
+                        } else {
+                            OutlinedButton(onClick = { viewModel.logoutAniList() }) { Text("Log out") }
+                        }
+                    }
+
+                    if (aniListUser != null) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Update progress after reading",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Finishing a chapter or volume updates linked series",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = trackAutoUpdate,
+                                onCheckedChange = { viewModel.setTrackAutoUpdate(it) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             SettingsHeader(title = "READING STATISTICS")
             Card(
                 modifier = Modifier.fillMaxWidth(),

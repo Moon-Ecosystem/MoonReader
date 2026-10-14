@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AccentPreset
@@ -21,6 +22,11 @@ import com.example.data.repository.MangaRepository
 import com.example.data.repository.StatisticsRepository
 import com.example.data.storage.ComicInfo
 import com.example.data.storage.OpenArchives
+import com.example.data.storage.TitleCleaner
+import com.example.data.db.MangaTrackEntity
+import com.example.data.tracking.AniListMedia
+import com.example.data.tracking.TrackingRepository
+import com.example.data.tracking.trackNumbers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -68,6 +74,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     val repository = MangaRepository(application, database.mangaDao(), preferencesManager)
     val statisticsRepository = StatisticsRepository(database.statisticsDao(), database.mangaDao(), preferencesManager)
+    private val trackingRepository = TrackingRepository(database.trackDao(), preferencesManager)
 
     // Statistics UI filter state
     private val _selectedTimePeriod = MutableStateFlow(TimePeriod.THIS_WEEK)
@@ -163,6 +170,11 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             emit(null)
             emit(repository.readComicInfo(firstChapterUri))
         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** The open manga's AniList link, or null when it isn't tracked. */
+    val selectedTrack: StateFlow<MangaTrackEntity?> = _selectedManga.flatMapLatest { manga ->
+        manga?.let { trackingRepository.observe(it.id) } ?: flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _selectedChapter = MutableStateFlow<Chapter?>(null)
@@ -276,6 +288,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             // leftover temp copy from a non-seekable provider
             repository.clearCache()
         }
+        // Progress read while offline last time
+        viewModelScope.launch { trackingRepository.syncPending() }
     }
 
     override fun onCleared() {
@@ -542,6 +556,8 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         val isCompleted = (pageIndex >= completionThreshold && total > 0) || (pageIndex >= total - 1 && total > 0)
         if (isCompleted && !chapter.isRead) {
             activeSessionChapterCompleted = true
+            // Repeats on later page turns are no-ops: tracked progress only goes up
+            onChapterFinished(manga.id, chapter)
         }
 
         // Saves run one at a time in page-turn order (launch on Main + fair Mutex); in parallel, a slower
@@ -635,6 +651,71 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             val mangaId = _selectedManga.value?.id ?: chapter.mangaId
             repository.markChapterRead(chapter.id, mangaId, isRead)
         }
+        if (isRead) onChapterFinished(_selectedManga.value?.id ?: chapter.mangaId, chapter)
+    }
+
+    // --- AniList tracking ---
+
+    private fun onChapterFinished(mangaId: String, chapter: Chapter) {
+        val (chapterNumber, volumeNumber) = trackNumbers(chapter)
+        viewModelScope.launch { trackingRepository.onChapterRead(mangaId, chapterNumber, volumeNumber) }
+    }
+
+    private fun toast(message: String) =
+        Toast.makeText(getApplication(), message, Toast.LENGTH_SHORT).show()
+
+    /** Finishes the browser login with the token from the redirect (null when AniList didn't send one). */
+    fun completeAniListLogin(token: String?) {
+        if (token.isNullOrBlank()) {
+            toast("AniList login failed")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { trackingRepository.login(token) }
+                .onSuccess { toast("Logged in to AniList as $it") }
+                .onFailure { toast("AniList login failed: ${it.message}") }
+            trackingRepository.syncPending()
+        }
+    }
+
+    fun logoutAniList() = trackingRepository.logout()
+
+    fun setTrackAutoUpdate(enabled: Boolean) = preferencesManager.setTrackAutoUpdate(enabled)
+
+    /** Search text for linking [manga]: ComicInfo's series name when present, else the cleaned-up folder name. */
+    fun trackSearchQuery(manga: Manga): String =
+        selectedMangaInfo.value?.series ?: TitleCleaner.clean(manga.title)
+
+    /** AniList results for [query]; those starting in the year from the file name come first. */
+    suspend fun searchAniList(query: String, manga: Manga): List<AniListMedia> {
+        val year = selectedMangaInfo.value?.year ?: TitleCleaner.year(manga.title)
+        return trackingRepository.search(query).sortedByDescending { year != null && it.year == year }
+    }
+
+    fun linkTrack(manga: Manga, media: AniListMedia) {
+        // Bring over what was already read here, like Mihon does on binding
+        val read = currentChapters.value.filter { it.isRead }.map { trackNumbers(it) }
+        val chapter = read.mapNotNull { it.first }.maxOrNull()
+        val volume = read.mapNotNull { it.second }.maxOrNull()
+        viewModelScope.launch {
+            runCatching { trackingRepository.link(manga.id, media, chapter, volume) }
+                .onFailure { toast("Couldn't link AniList: ${it.message}") }
+        }
+    }
+
+    fun updateTrack(track: MangaTrackEntity) {
+        viewModelScope.launch {
+            runCatching { trackingRepository.update(track) }
+                .onFailure { toast("Couldn't update AniList: ${it.message}") }
+        }
+    }
+
+    fun refreshTrack(mangaId: String) {
+        viewModelScope.launch { runCatching { trackingRepository.refresh(mangaId) } }
+    }
+
+    fun unlinkTrack(mangaId: String) {
+        viewModelScope.launch { trackingRepository.unlink(mangaId) }
     }
 
     fun setAccentPreset(preset: AccentPreset) {

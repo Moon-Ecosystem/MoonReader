@@ -5,15 +5,14 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
+        <!-- The AniList login token must not leave the device -->
+        <exclude domain="sharedpref" path="anilist_auth.xml"/>
         <!-- TODO: Use <include> and <exclude> to control what is backed up.
         <include .../>
         <exclude .../>
         -->
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="anilist_auth.xml"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

@@ -3,6 +3,7 @@ package com.example.data.db
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.example.data.tracking.TrackStatus
 
 @Entity(tableName = "manga_library")
 data class MangaEntity(
@@ -54,4 +55,26 @@ data class ReadingSessionEntity(
     val endPage: Int,
     val pagesProgressed: Int,
     val completedChapter: Boolean
+)
+
+/**
+ * A local series linked to its AniList entry, mirroring the remote list entry.
+ * [pendingSync] marks progress read offline that still has to reach AniList.
+ */
+@Entity(tableName = "manga_tracks")
+data class MangaTrackEntity(
+    @PrimaryKey val mangaId: String,
+    val remoteId: Long,
+    val libraryId: Long? = null,
+    val title: String,
+    val coverUrl: String? = null,
+    val status: TrackStatus? = null,
+    val progress: Int = 0,
+    val progressVolumes: Int = 0,
+    val totalChapters: Int = 0,
+    val totalVolumes: Int = 0,
+    val score: Int = 0, // 0–100, AniList's raw score whatever format the user displays
+    val startedAt: String? = null, // ISO date (yyyy-MM-dd)
+    val completedAt: String? = null,
+    val pendingSync: Boolean = false
 )
