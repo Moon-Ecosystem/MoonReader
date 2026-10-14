@@ -102,7 +102,7 @@ fun trackNumbers(chapter: Chapter): Pair<Int?, Int?> {
  * Applies a finished chapter/volume like Mihon does: progress only ever goes up (so rereads change
  * nothing), reading something starts the entry, and reaching the total completes it.
  */
-fun MangaTrackEntity.withRead(chapter: Int?, volume: Int?, today: String): MangaTrackEntity {
+fun MangaTrackEntity.withRead(chapter: Int?, volume: Int?, today: String, startedOn: String = today): MangaTrackEntity {
     val chapters = maxOf(progress, chapter ?: 0)
     val volumes = maxOf(progressVolumes, volume ?: 0)
     if (chapters == progress && volumes == progressVolumes) return this
@@ -116,7 +116,7 @@ fun MangaTrackEntity.withRead(chapter: Int?, volume: Int?, today: String): Manga
         progress = chapters,
         progressVolumes = volumes,
         status = newStatus,
-        startedAt = startedAt ?: today,
+        startedAt = startedAt ?: startedOn,
         completedAt = if (newStatus == TrackStatus.COMPLETED) completedAt ?: today else completedAt
     )
 }

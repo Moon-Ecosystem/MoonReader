@@ -27,6 +27,15 @@ class TrackingTest {
     }
 
     @Test
+    fun `linking uses the local first and last read dates`() {
+        val t = track.withRead(10, null, today = "2026-03-20", startedOn = "2026-01-05")
+        assertEquals("2026-01-05", t.startedAt)
+        assertEquals("2026-03-20", t.completedAt)
+        // A start date already on AniList is kept
+        assertEquals("2025-12-01", track.copy(startedAt = "2025-12-01").withRead(3, null, today, "2026-01-05").startedAt)
+    }
+
+    @Test
     fun `progress never goes down, so rereads change nothing`() {
         val t = track.copy(status = TrackStatus.CURRENT, progress = 5)
         assertSame(t, t.withRead(2, null, today))

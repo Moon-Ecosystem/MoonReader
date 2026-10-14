@@ -661,6 +661,9 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { trackingRepository.onChapterRead(mangaId, chapterNumber, volumeNumber) }
     }
 
+    private fun isoDate(millis: Long) =
+        java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+
     private fun toast(message: String) =
         Toast.makeText(getApplication(), message, Toast.LENGTH_SHORT).show()
 
@@ -694,12 +697,18 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun linkTrack(manga: Manga, media: AniListMedia) {
         // Bring over what was already read here, like Mihon does on binding
-        val read = currentChapters.value.filter { it.isRead }.map { trackNumbers(it) }
+        val chapters = currentChapters.value
+        val read = chapters.filter { it.isRead }.map { trackNumbers(it) }
         val chapter = read.mapNotNull { it.first }.maxOrNull()
         val volume = read.mapNotNull { it.second }.maxOrNull()
+        val touched = chapters.map { it.lastReadTime }.filter { it > 0 }
         viewModelScope.launch {
-            runCatching { trackingRepository.link(manga.id, media, chapter, volume) }
-                .onFailure { toast("Couldn't link AniList: ${it.message}") }
+            // Start = first reading session here (chapter progress times as a fallback); finish = last read
+            val firstRead = database.statisticsDao().getFirstSessionStart(manga.id)?.takeIf { it > 0 } ?: touched.minOrNull()
+            val lastRead = touched.maxOrNull()
+            runCatching {
+                trackingRepository.link(manga.id, media, chapter, volume, firstRead?.let(::isoDate), lastRead?.let(::isoDate))
+            }.onFailure { toast("Couldn't link AniList: ${it.message}") }
         }
     }
 

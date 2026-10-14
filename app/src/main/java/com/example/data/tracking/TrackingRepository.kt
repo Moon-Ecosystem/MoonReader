@@ -35,8 +35,18 @@ class TrackingRepository(
 
     suspend fun search(query: String): List<AniListMedia> = io { api.search(query) }
 
-    /** Links [mangaId] to [media], adopting the user's existing list entry or adding one with what was read locally. */
-    suspend fun link(mangaId: String, media: AniListMedia, readChapter: Int?, readVolume: Int?) = io {
+    /**
+     * Links [mangaId] to [media], adopting the user's existing list entry or adding one with what was read locally.
+     * [firstReadOn]/[lastReadOn] (ISO dates of local reading) fill start/finish dates AniList doesn't have yet.
+     */
+    suspend fun link(
+        mangaId: String,
+        media: AniListMedia,
+        readChapter: Int?,
+        readVolume: Int?,
+        firstReadOn: String?,
+        lastReadOn: String?
+    ) = io {
         val entry = api.findEntry(prefs.aniListUserId, media.id)
         val base = MangaTrackEntity(
             mangaId = mangaId,
@@ -46,8 +56,10 @@ class TrackingRepository(
             totalChapters = media.chapters,
             totalVolumes = media.volumes
         ).withEntry(entry)
-        val track = base.withRead(readChapter, readVolume, today())
+        val track = base.withRead(readChapter, readVolume, lastReadOn ?: today(), firstReadOn ?: today())
             .let { if (it.status == null) it.copy(status = TrackStatus.PLANNING) else it }
+            // Already read here but AniList has no start date (e.g. progress was equal): use ours
+            .let { if (it.startedAt == null && firstReadOn != null) it.copy(startedAt = firstReadOn) else it }
         val saved = if (entry == null || track != base) track.withEntry(api.save(track)) else track
         dao.upsert(saved)
     }

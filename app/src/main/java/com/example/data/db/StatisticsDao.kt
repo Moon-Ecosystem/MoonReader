@@ -29,6 +29,9 @@ interface StatisticsDao {
     @Query("SELECT * FROM reading_sessions WHERE startedAt >= :startTime AND startedAt <= :endTime ORDER BY startedAt ASC")
     suspend fun getSessionsBetweenOnce(startTime: Long, endTime: Long): List<ReadingSessionEntity>
 
+    @Query("SELECT MIN(startedAt) FROM reading_sessions WHERE mangaId = :mangaId")
+    suspend fun getFirstSessionStart(mangaId: String): Long?
+
     @Query("SELECT * FROM reading_sessions WHERE mangaId = :mangaId ORDER BY startedAt DESC")
     fun getSessionsForManga(mangaId: String): Flow<List<ReadingSessionEntity>>
 
