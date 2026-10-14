@@ -10,149 +10,153 @@
 </p>
 
 <p align="center">
-  <strong>An ultra-fast, local-first, privacy-focused manga & comic reader engineered natively for Android.</strong><br />
-  Read your local <code>.cbz</code>, <code>.zip</code>, and comic archives with zero ads, zero tracking, and hardware-accelerated rendering.
+  <strong>A fast, local-first, privacy-focused manga & comic reader built natively for Android.</strong><br />
+  Read your local <code>.cbz</code> and <code>.zip</code> comic archives with no ads, no accounts and no tracking.
 </p>
 
 ---
 
 ## 🌟 Highlights
 
-- **⚡ 100% Offline & Private:** No accounts, no analytics, no external network requests. Your library stays securely on your device.
-- **📂 Seamless Storage Access (SAF):** Point to any folder on your device or SD card. Reads subdirectories and archives automatically with persistent permissions.
-- **🖼️ Native Decompression:** High-performance, on-demand streaming extraction for `.cbz`, `.zip`, `.cbr`, `.rar`, and `.7z` archives without unzipping entire series onto your disk.
-- **🔍 Multi-Touch Pinch Zoom:** Smooth zooming from 1.0× to 4.5× with fluid panning and double-tap zoom toggling.
-- **📱 True Immersive Full-Screen:** Mobile status bar automatically vanishes when entering reader mode for distraction-free reading.
-- **🖼️ Long-Press Page Actions:** Tap and hold anywhere in the center to set any page as the manga's cover art or export full-res pages directly to your device's Gallery/Photos app.
-- **🎨 Sleek & Compact UI:** Built with Material Design 3, dynamic theme accents, OLED black backgrounds, and ultra-slim headers/footers designed for maximum screen real estate.
-- **🔒 App Lock Security:** Protect your private reading library with a built-in 4-digit PIN security keypad.
+- **⚡ Offline & Private:** No accounts, no analytics. The only network use is optional AniList tracking. Your library stays on your device.
+- **📂 Storage Access Framework:** Pick any folder on your device or SD card. Subfolders and archives are scanned automatically, with persistent permission.
+- **🖼️ Streamed Pages:** Pages are read straight out of the archive on demand. Nothing is unzipped to disk.
+- **🔍 Mihon-style Zoom:** Pinch-zoom up to 5×, centred on your fingers. Pan 1:1 with fling, and double-tap to zoom to 2× where you tapped.
+- **📤 Open with MangaReader:** Open a `.cbz` straight from your file manager or browser without adding it to the library.
+- **🖼️ Long-Press Page Actions:** Set the page as the cover, copy it to the clipboard or save it to your gallery.
+- **📊 Reading Statistics:** Reading time, streaks, chapters and pages read, and personal records.
+- **🔗 AniList Tracking:** Optional, Mihon-style. Link a series and finishing chapters updates your AniList list.
+- **🔒 App Lock:** Protect your library with a 4-digit PIN.
 
 ---
 
 ## ✨ Features
 
-### 📖 Reader Engine
-- **3 Reading Orientations:**
-  - **Manga (Right-to-Left):** Authentic Japanese reading flow with tap-to-turn.
-  - **Paged (Left-to-Right):** Standard Western comic book layout.
-  - **Webtoon (Continuous Vertical):** Seamless vertical scroll for Korean manhwa and webcomics.
-- **Immersive Mode:** System status bar hides automatically upon entering reading mode, maximizing visible artwork area.
-- **Interactive Multi-Touch Zoom:** Pinch in and out to zoom into fine details (up to 4.5×). Double-tap quickly toggles between 1× and 2.5× zoom.
-- **Center Tap-and-Hold Menu:** Long-press in the center of any page to:
-  1. *Set Current Page as Cover* — updates the series thumbnail immediately.
-  2. *Save Page to Gallery* — saves the pristine, full-resolution image to device storage via Android `MediaStore`.
-- **Sleek Navigation Footer:** Compact 28dp progress slider with live page badge indicator (`p. 14 / 45`) and quick chapter skip buttons.
-- **Background Themes:** Pure OLED Black (`#000000`), Dark Obsidian (`#141418`), and Paper Light (`#F7F7F7`).
-- **Screen Wake Lock:** Optional toggle to keep the screen on while reading.
+### 📖 Reader
+- **3 Reading Modes:**
+  - **Right to Left (Manga):** Japanese reading order with tap-to-turn.
+  - **Left to Right:** Western comic layout.
+  - **Vertical Continuous (Webtoon):** Seamless vertical scroll for manhwa and webcomics.
+- **Immersive Mode:** The status bar hides while you read.
+- **Zoom & Pan:** Pinch to zoom (1×–5×). Panning follows your finger 1:1 and flings. Double-tap toggles between 1× and 2× around the tap point.
+- **Long-Press Menu:** Hold in the centre of a page to:
+  1. *Set as cover:* updates the series thumbnail immediately.
+  2. *Copy:* puts the page image on the clipboard.
+  3. *Save:* saves the full-resolution page to your gallery through `MediaStore`.
+- **Navigation Footer:** Progress slider with a page badge (`p. 14 / 45`) and previous/next chapter buttons.
+- **Background Themes:** Pure Black, Dark Gray and Light.
+- **Keep Screen On:** Optional toggle that stops the screen sleeping while you read.
+- **Resume Anywhere:** Reading progress is saved per chapter.
 
-### 📚 Library & Management
-- **Automatic Archive Discovery:** Deep recursive folder scanning identifies all series, subfolders, and chapter archives.
-- **Natural Chapter Sorting:** Alphanumerically orders chapters correctly (`Ch. 1`, `Ch. 2`, `Ch. 9`, `Ch. 10`).
-- **One-Tap Resume Reading:** Circular floating action button on the Home screen to jump straight back into your last read position.
-- **Library Filter Tabs:** Filter between **Latest**, **Reading** (in-progress), **Favorites**, and **Unread**.
-- **Instant Search:** Client-side real-time filtering across all indexed series.
-- **Zero-Lag Chapter Listing:** Pure text chapter badges (`#1`, `#2`, `#140`) for 120Hz smooth scrolling without image decoding stutter.
-- **Custom Cover Art:** Set covers from inside the reader or choose any image file from device storage via Android Photo Picker (`PickVisualMedia`).
+### 📚 Library
+- **Automatic Discovery:** Scans folders recursively to find series, subfolders and chapter archives.
+- **ComicInfo.xml Support:** Reads series metadata from the ComicRack format (used by Mihon, Komga and Kavita).
+- **Natural Chapter Sorting:** `Ch. 1`, `Ch. 2`, …, `Ch. 9`, `Ch. 10`.
+- **Continue Reading:** A floating button on the Home screen jumps back to your last chapter.
+- **Filter Tabs:** All, Reading, Favorites and Unread.
+- **Sorting:** Sort by last read, title, total chapters or unread chapters.
+- **Search:** Filters the library in real time.
+- **Custom Covers:** Set a cover from inside the reader, or pick any image with the Android Photo Picker.
 
-### 🛡️ Privacy & Storage
-- **4-Digit PIN Vault:** Gate entry to the app with PIN verification and instant auto-lock when switching apps.
-- **Zero Dangerous Permissions:** Built strictly with modern Android APIs (SAF & MediaStore), requiring zero broad storage permissions.
-- **Cache Management:** Monitor decompression cache size in Settings and flush cache files with a single tap.
+### 📊 Statistics
+- Total reading time, current streak, chapters read, pages read, active days and series read.
+- Records: most active day, longest single session, and your best day for pages and for chapters.
+- Every chapter you read is recorded, including ones reached with next/previous chapter.
+- A session is saved when you leave the reader or send the app to the background.
+- Returning to the same chapter within 5 minutes continues the previous session.
+- **Inactivity Auto-Pause:** The timer can pause when you stop interacting with the reader.
+- Tracking can be turned off, and statistics can be reset from Settings.
+
+### 🔗 AniList Tracking
+- Log in from **Settings → Tracking**; the login happens in your browser and the token stays on the device (excluded from backups).
+- Tap **AniList** on a series to search and link it. The search is pre-filled with the ComicInfo series name or a cleaned-up folder name: `Frankenstein (2018) (Digital) (1r0n)` → `Frankenstein`. Results from the same year are listed first.
+- Edit status, chapters, volumes, score and start/finish dates from the same sheet.
+- Finishing a chapter raises AniList progress, never lowers it:
+  - Planning becomes Reading.
+  - Reaching the last chapter marks the series Completed.
+  - Files named as volumes (`Vol 3`, `v03`) update the volume count instead.
+- Progress read offline is sent the next time the app starts.
+
+### 🎨 Appearance & Security
+- Material 3 with accent presets: Night Blue, Crimson Red, Cyber Purple, Emerald, Warm Rust, Coral Pink and System Dynamic.
+- 4-digit PIN lock that locks the app again when you switch away.
 
 ---
 
 ## 🛠️ Architecture & Tech Stack
 
-The application is built following **Clean Architecture** and the **MVVM (Model-View-ViewModel)** pattern:
+Single-activity **MVVM** app: Compose screens collect `StateFlow`s from one `MangaViewModel`, which talks to repositories backed by Room and the Storage Access Framework.
 
 ```
 app/src/main/java/com/example/
-├── MainActivity.kt                  # Single-activity container with edge-to-edge system setup
-├── data/                            # DATA LAYER
-│   ├── Models.kt                    # Domain models (Manga, Chapter, ReadingDirection, ReaderTheme)
-│   ├── db/                          # Room Database (Entities, DAOs, Migrations)
-│   │   ├── MangaDao.kt
-│   │   ├── MangaDatabase.kt
-│   │   └── MangaEntity.kt
-│   ├── preferences/                 # PreferencesManager (Theme, PIN, Reading Direction)
-│   ├── repository/                  # MangaRepository (Single source of truth combining SAF & Room)
-│   └── storage/                     # CbzExtractor & MangaScanner (Archive streaming engine)
-├── ui/                              # UI LAYER (Jetpack Compose + MVVM)
-│   ├── MangaApp.kt                  # Root scaffold, navigation bar & animated transitions
-│   ├── MangaViewModel.kt            # Unidirectional state holder (StateFlow & Coroutines)
-│   ├── components/                  # Reusable UI widgets (PIN dialog, lock screen)
-│   ├── screens/                     # Feature screens
-│   │   ├── HomeScreen.kt            # Library grid, compact header & resume FAB
-│   │   ├── ChapterListScreen.kt     # Series details, cover changer & chapter list
-│   │   ├── ReaderScreen.kt          # Immersive reader, pinch zoom & tap-and-hold sheet
-│   │   ├── SearchScreen.kt          # Real-time library search
-│   │   └── SettingsScreen.kt        # App lock, theme presets & cache controls
-│   └── theme/                       # Material 3 Theme (Colors, Type, Shapes)
+├── MainActivity.kt                  # Single activity; edge-to-edge setup, "Open with" intents
+├── MangaReaderApp.kt                # Application class; Coil ImageLoader with the CBZ page fetcher
+├── data/
+│   ├── Models.kt                    # Domain models (Manga, Chapter, ReadingDirection, ReaderTheme, …)
+│   ├── StatisticsModels.kt          # Statistics domain models
+│   ├── db/                          # Room: AppDatabase (+ migrations), Entities, MangaDao, StatisticsDao
+│   ├── preferences/                 # PreferencesManager (theme, PIN, reading prefs)
+│   ├── repository/                  # MangaRepository, StatisticsRepository
+│   └── storage/                     # MangaScanner (SAF), ChannelZip/CbzArchive (ZIP reading),
+│                                    # CbzPageFetcher (Coil), ComicInfoParser, CoverImages, natural sort
+└── ui/
+    ├── MangaApp.kt                  # Root scaffold, navigation and transitions
+    ├── MangaViewModel.kt            # App state (library, reader, reading sessions)
+    ├── components/                  # Shared widgets (PIN lock, continue-reading card, …)
+    ├── screens/                     # Home, ChapterList, Reader, Search, Settings, Statistics
+    └── theme/                       # Material 3 colors and typography
 ```
 
-### Tech Stack Details:
-- **Language:** [Kotlin](https://kotlinlang.org/) (Coroutines, StateFlow, Flows)
-- **UI Toolkit:** [Jetpack Compose](https://developer.android.com/jetpack/compose) with Material Design 3
-- **Local Database:** [Room](https://developer.android.com/training/data-storage/room) 2.6 with Kotlin Symbol Processing (KSP)
-- **Image Loading:** [Coil Compose](https://coil-kt.github.io/coil/) 2.7 with memory caching & subcomposition
-- **File Management:** Android Storage Access Framework (SAF) + MediaStore API
-- **Archive Engine:** Native `ZipInputStream` & buffered file streams with deterministic cache hashing
+### Tech Stack
+- **Language:** [Kotlin](https://kotlinlang.org/) with Coroutines and Flow
+- **UI:** [Jetpack Compose](https://developer.android.com/jetpack/compose) with Material Design 3
+- **Database:** [Room](https://developer.android.com/training/data-storage/room) 2.7 with KSP
+- **Image Loading:** [Coil](https://coil-kt.github.io/coil/) 2.7 with a custom fetcher that decodes pages straight from the archive
+- **Files:** Storage Access Framework, `MediaStore` and `FileProvider`
+- **Archives:** A custom random-access ZIP reader over the file channel. Only the page you are viewing is read.
 
 ---
 
 ## 📦 Supported Formats
 
-| Format | Extension | Support Status |
+| Format | Extension | Status |
 | :--- | :--- | :--- |
-| **Comic Book ZIP** | `.cbz` | ✅ Full Native Support |
-| **Standard ZIP** | `.zip` | ✅ Full Native Support |
-| **Comic Book RAR** | `.cbr` | ✅ Full Archive Discovery |
-| **RAR Archive** | `.rar` | ✅ Full Archive Discovery |
-| **7-Zip Archive** | `.7z` | ✅ Full Archive Discovery |
-| **Standalone Images** | `.jpg`, `.png`, `.webp` | ✅ Supported for covers & chapters |
+| **Comic Book ZIP** | `.cbz` | ✅ Supported |
+| **ZIP** | `.zip` | ✅ Supported |
+| **Comic Book RAR / RAR / 7-Zip** | `.cbr`, `.rar`, `.7z` | ⚠️ Listed in the library, but pages can't be opened yet |
+| **Images inside archives** | `.jpg`, `.png`, `.webp`, … | ✅ Supported |
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
-- **Android Studio** Hedgehog (2023.1.1) or newer
-- **JDK 17** or higher
-- **Android Device / Emulator** running Android 8.0 (API 26) or higher
+### Install
+Download the latest APK from the repository's [Releases](../../releases) page. Every merge to `main` publishes a new signed build.
 
-### Building from Source
+Requires Android 7.0 (API 24) or newer.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/your-username/manga-reader.git
-   cd manga-reader
-   ```
+### Build from Source
 
-2. **Open in Android Studio:**
-   - Open Android Studio, select **Open**, and navigate to the cloned project root.
-   - Allow Gradle to sync dependencies.
+Prerequisites: JDK 21, Gradle 9.3.1 and an Android SDK with platform 36.1. The repo has no Gradle wrapper, so use a system `gradle`, or open the project in Android Studio.
 
-3. **Build the APK:**
-   ```bash
-   # Linux / macOS
-   gradle assembleDebug
+```bash
+git clone https://github.com/Varun-666/MangaReader.git
+cd MangaReader
 
-   # Windows
-   gradle.bat assembleDebug
-   ```
+gradle :app:testDebugUnitTest   # run unit tests
+gradle :app:assembleDebug       # build a debug APK
+adb install app/build/outputs/apk/debug/app-debug.apk
+```
 
-4. **Install onto your connected device:**
-   ```bash
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   ```
+> The debug build is signed with `debug.keystore` at the repo root. It isn't committed, so create one with `keytool` or point the `debugConfig` signing config at your own keystore.
 
 ---
 
-## 📂 Folder Structure Example
+## 📂 Folder Structure
 
-MangaReader automatically detects series structured in either format:
+MangaReader detects series laid out either way:
 
-**Option A: Series Folder with Chapters**
+**Option A: One folder per series**
 ```text
 MyManga/
 └── Solo Leveling/
@@ -162,7 +166,7 @@ MyManga/
     └── Chapter 03.cbz
 ```
 
-**Option B: Direct Archives in Folder**
+**Option B: Archives directly in a folder**
 ```text
 Comics/
 ├── Horimiya - Vol 1.cbz
@@ -174,14 +178,13 @@ Comics/
 
 ## 🔒 Privacy & Permissions
 
-MangaReader complies strictly with Google Play Developer Program policies:
-- **No Broad Storage Permissions:** Does not request `READ_EXTERNAL_STORAGE` or `MANAGE_EXTERNAL_STORAGE`.
-- **Scoped Document Trees:** Uses Android's native directory picker (`OpenDocumentTree`) to access only the folder you choose.
-- **Scoped Media Export:** Uses Android's `MediaStore.Images` API to save pages directly to your Photos folder without requiring write permissions on modern Android versions.
-- **Zero Network Traffic:** The app contains no analytics SDKs, ad networks, or background telemetry.
+- **No Broad Storage Permissions:** The app never asks for `READ_EXTERNAL_STORAGE` or `MANAGE_EXTERNAL_STORAGE`. `WRITE_EXTERNAL_STORAGE` is requested only on Android 9 and below, to save pages to the gallery.
+- **Scoped Folder Access:** Android's folder picker (`OpenDocumentTree`) grants access only to the folder you choose.
+- **Gallery Export:** Pages are saved through `MediaStore.Images`.
+- **Network Only for AniList:** The app has the `INTERNET` permission solely for AniList tracking, and contacts AniList only after you log in. No analytics SDKs, ad networks or telemetry.
 
 ---
 
 ## 📄 License
 
-Distributed under the **MIT License**. See `LICENSE` for more information.
+Distributed under the **MIT License**.
