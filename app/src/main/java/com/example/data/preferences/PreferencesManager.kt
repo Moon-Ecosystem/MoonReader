@@ -16,6 +16,26 @@ class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("manga_reader_prefs", Context.MODE_PRIVATE)
 
+    // Own file so backup rules can exclude the AniList token
+    private val authPrefs: SharedPreferences =
+        context.getSharedPreferences("anilist_auth", Context.MODE_PRIVATE)
+
+    val aniListToken: String? get() = authPrefs.getString(KEY_ANILIST_TOKEN, null)
+    val aniListUserId: Long get() = authPrefs.getLong(KEY_ANILIST_USER_ID, 0L)
+
+    private val _aniListUserName = MutableStateFlow(
+        authPrefs.getString(KEY_ANILIST_USER_NAME, null)?.takeIf { aniListToken != null }
+    )
+    /** The logged-in AniList user's name, or null when logged out. */
+    val aniListUserName: StateFlow<String?> = _aniListUserName.asStateFlow()
+
+    private val _aniListScoreFormat = MutableStateFlow(authPrefs.getString(KEY_ANILIST_SCORE_FORMAT, null))
+    /** AniList ScoreFormat name (e.g. "POINT_10_DECIMAL"), or null until fetched. */
+    val aniListScoreFormat: StateFlow<String?> = _aniListScoreFormat.asStateFlow()
+
+    private val _trackAutoUpdate =MutableStateFlow(prefs.getBoolean(KEY_TRACK_AUTO_UPDATE, true))
+    val trackAutoUpdate: StateFlow<Boolean> = _trackAutoUpdate.asStateFlow()
+
     private val _folderUri = MutableStateFlow(prefs.getString(KEY_FOLDER_URI, null))
     val folderUri: StateFlow<String?> = _folderUri.asStateFlow()
 
@@ -118,6 +138,32 @@ class PreferencesManager(context: Context) {
         _volumeKeysNavigation.value = enabled
     }
 
+    fun setAniListLogin(token: String, userId: Long, userName: String, scoreFormat: String) {
+        authPrefs.edit()
+            .putString(KEY_ANILIST_TOKEN, token)
+            .putLong(KEY_ANILIST_USER_ID, userId)
+            .putString(KEY_ANILIST_USER_NAME, userName)
+            .apply()
+        _aniListUserName.value = userName
+        setAniListScoreFormat(scoreFormat)
+    }
+
+    fun setAniListScoreFormat(format: String) {
+        authPrefs.edit().putString(KEY_ANILIST_SCORE_FORMAT, format).apply()
+        _aniListScoreFormat.value = format
+    }
+
+    fun clearAniListLogin() {
+        authPrefs.edit().clear().apply()
+        _aniListUserName.value = null
+        _aniListScoreFormat.value = null
+    }
+
+    fun setTrackAutoUpdate(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TRACK_AUTO_UPDATE, enabled).apply()
+        _trackAutoUpdate.value = enabled
+    }
+
     fun setKeepScreenOn(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, enabled).apply()
         _keepScreenOn.value = enabled
@@ -183,5 +229,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_PIN_HASH = "pref_pin_hash"
         private const val KEY_TRACK_STATISTICS = "pref_track_statistics"
         private const val KEY_INACTIVITY_THRESHOLD = "pref_inactivity_threshold_seconds"
+        private const val KEY_TRACK_AUTO_UPDATE = "pref_track_auto_update"
+        private const val KEY_ANILIST_TOKEN = "anilist_token"
+        private const val KEY_ANILIST_USER_ID = "anilist_user_id"
+        private const val KEY_ANILIST_USER_NAME = "anilist_user_name"
+        private const val KEY_ANILIST_SCORE_FORMAT = "anilist_score_format"
     }
 }

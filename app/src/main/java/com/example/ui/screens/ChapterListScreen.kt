@@ -82,6 +82,7 @@ import com.example.data.Chapter
 import com.example.data.Manga
 import com.example.ui.MangaViewModel
 import com.example.ui.components.stableStatusBars
+import com.example.ui.components.TrackingSheet
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.union
 import java.io.File
@@ -105,6 +106,11 @@ fun ChapterListScreen(
     val info by viewModel.selectedMangaInfo.collectAsStateWithLifecycle()
     var showMenu by remember { mutableStateOf(false) }
     var isSummaryExpanded by remember(manga.id) { mutableStateOf(false) }
+    val track by viewModel.selectedTrack.collectAsStateWithLifecycle()
+    var showTrackingSheet by remember { mutableStateOf(false) }
+    if (showTrackingSheet) {
+        TrackingSheet(manga = manga, viewModel = viewModel, onDismiss = { showTrackingSheet = false })
+    }
 
     // Photo Picker for changing individual manga cover image
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -386,6 +392,17 @@ fun ChapterListScreen(
                         ) {
                             MetaCol(label = "Chapters", value = "${chapters.size}")
                             MetaCol(label = "Read", value = "$readCount")
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showTrackingSheet = true }
+                                    .testTag("tracking_button")
+                            ) {
+                                MetaCol(
+                                    label = "AniList",
+                                    value = track?.let { t -> t.status?.displayName ?: "Linked" } ?: "Track"
+                                )
+                            }
                         }
                     }
 
