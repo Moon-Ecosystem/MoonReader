@@ -157,7 +157,7 @@ class AniListApi(private val token: () -> String?) {
 
     companion object {
         const val CLIENT_ID = "10495"
-        // Implicit grant: AniList redirects to mangareader://anilist-auth#access_token=... (a 1-year token)
+        // Implicit grant: AniList redirects to moonreader://anilist-auth#access_token=... (a 1-year token)
         const val LOGIN_URL = "https://anilist.co/api/v2/oauth/authorize?client_id=$CLIENT_ID&response_type=token"
         private const val ENDPOINT = "https://graphql.anilist.co"
         private const val ENTRY_FIELDS =

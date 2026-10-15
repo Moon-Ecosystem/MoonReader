@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:name=".MangaReaderApp"
+        android:name=".MoonReaderApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -27,7 +27,7 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- "Open with MangaReader" for CBZ files from file managers and other apps -->
+            <!-- "Open with Moon Reader" for CBZ files from file managers and other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -43,7 +43,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="mangareader" android:host="anilist-auth" />
+                <data android:scheme="moonreader" android:host="anilist-auth" />
             </intent-filter>
         </activity>
         <!-- Serves copied pages to the clipboard -->

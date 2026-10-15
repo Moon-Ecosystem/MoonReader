@@ -30,11 +30,11 @@ class MainActivity : ComponentActivity() {
         openViewIntent(intent)
     }
 
-    /** "Open with MangaReader": reads the CBZ another app handed over; or finishes the AniList login. */
+    /** "Open with Moon Reader": reads the CBZ another app handed over; or finishes the AniList login. */
     private fun openViewIntent(intent: Intent?) {
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
-        if (uri.scheme == "mangareader" && uri.host == "anilist-auth") {
+        if (uri.scheme == "moonreader" && uri.host == "anilist-auth") {
             // Implicit grant: the token comes in the fragment, e.g. #access_token=...&token_type=Bearer
             val token = uri.fragment?.split('&')
                 ?.firstOrNull { it.startsWith("access_token=") }

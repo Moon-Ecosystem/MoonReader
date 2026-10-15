@@ -80,7 +80,7 @@ fun PinSetupDialog(
     }
 
     val subtitle = when (mode) {
-        PinDialogMode.SET_NEW -> if (step == 0) "Choose a numeric PIN to lock MangaReader" else "Re-enter the PIN to confirm"
+        PinDialogMode.SET_NEW -> if (step == 0) "Choose a numeric PIN to lock Moon Reader" else "Re-enter the PIN to confirm"
         PinDialogMode.CHANGE_PIN -> when (step) {
             0 -> "Verify your identity"
             1 -> "Choose your new 4-digit PIN"

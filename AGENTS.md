@@ -4,11 +4,12 @@ Guidance for AI coding agents working in this repo.
 
 ## Project
 
-MangaReader is an offline Android reader for local `.cbz`/`.zip` comic archives, with optional AniList tracking (the only network use).
+Moon Reader (formerly MangaReader) is an offline Android reader for local `.cbz`/`.zip` comic archives, with optional AniList tracking (the only network use).
 
 - Kotlin, Jetpack Compose (Material 3), Room, Coil 2.7.
 - AGP 9.1, Gradle 9.3.1, minSdk 24, targetSdk 36.
 - Single module: `app`. Package `com.example`; applicationId `com.aistudio.mangareader.kvmzqp`. The project started as an AI Studio export.
+- Don't rename the leftover `mangareader` identifiers: the applicationId, the `manga_reader_database` / `manga_reader_prefs` file names (renaming wipes user data).
 - Only ZIP-based archives (`.cbz`, `.zip`) can be read. `MangaScanner` also lists `.cbr`/`.rar`/`.7z` files in the library, but their pages can't be opened yet.
 - Pinch zoom goes up to 5×. Double-tap toggles between 1× and 2× around the tap point.
 
@@ -17,7 +18,7 @@ MangaReader is an offline Android reader for local `.cbz`/`.zip` comic archives,
 ```
 app/src/main/java/com/example/
   MainActivity.kt           entry point; handles "Open with" VIEW intents for .cbz files
-  MangaReaderApp.kt         Application class (Coil ImageLoader setup)
+  MoonReaderApp.kt          Application class (Coil ImageLoader setup)
   data/
     Models.kt, StatisticsModels.kt
     db/                     Room: AppDatabase, Entities, MangaDao, StatisticsDao
@@ -67,7 +68,7 @@ gradle :app:processDebugResources :app:compileDebugKotlin  # compile check
   - A session is recorded in `MangaViewModel.endReadingSession()`, which runs on chapter change and on `ON_STOP`.
   - `StatisticsRepository.recordSession` merges a session into the previous one when it is the same chapter and the gap is 5 minutes or less.
 - **AniList tracking** (`data/tracking/`):
-  - Login uses AniList's implicit grant (client id `10495`, redirect `mangareader://anilist-auth`). `MainActivity` is `singleTask` so the redirect reaches the running app through `onNewIntent`.
+  - Login uses AniList's implicit grant (client id `10495`, redirect `moonreader://anilist-auth`, which must match the client's settings on AniList). `MainActivity` is `singleTask` so the redirect reaches the running app through `onNewIntent`.
   - The token lives in the `anilist_auth` prefs file, which is excluded from backups.
   - Links are stored in `manga_tracks`. `withRead` only ever raises progress. Volume-named files update `progressVolumes`.
   - Offline progress is marked `pendingSync` and retried on app start.
