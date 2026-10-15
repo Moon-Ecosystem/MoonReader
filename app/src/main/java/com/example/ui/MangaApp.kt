@@ -72,7 +72,7 @@ import com.example.ui.screens.ReaderScreen
 import com.example.ui.screens.SearchScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.StatisticsScreen
-import com.example.ui.theme.MangaReaderTheme
+import com.example.ui.theme.MoonReaderTheme
 
 private enum class AppScreen {
     LOCKED,
@@ -140,7 +140,7 @@ fun MangaApp(
         else -> AppScreen.MAIN_TABS
     }
 
-    MangaReaderTheme(accentPreset = accentPreset) {
+    MoonReaderTheme(accentPreset = accentPreset) {
         Box(modifier = modifier.fillMaxSize()) {
             AnimatedContent(
                 targetState = currentScreen,
@@ -201,7 +201,7 @@ fun MangaApp(
                 when (screen) {
                     AppScreen.LOCKED -> {
                         PinLockScreen(
-                            title = "MangaReader is Locked",
+                            title = "Moon Reader is Locked",
                             subtitle = "Enter your 4-digit passcode to continue",
                             onPinComplete = { pin -> viewModel.unlockApp(pin) }
                         )

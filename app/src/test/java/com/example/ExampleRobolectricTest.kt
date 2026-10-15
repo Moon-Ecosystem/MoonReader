@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.preferences.PreferencesManager
 import com.example.data.storage.NaturalOrderComparator
+import com.example.ui.screens.readableFolderPath
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,7 +24,16 @@ class ExampleRobolectricTest {
   fun `read string from context`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("MangaReader", appName)
+    assertEquals("Moon Reader", appName)
+  }
+
+  @Test
+  fun `library folder uri is shown as a readable path`() {
+    val tree = "content://com.android.externalstorage.documents/tree/"
+    assertEquals("Internal storage/Mihon/local", readableFolderPath(tree + "primary%3AMihon%2Flocal"))
+    assertEquals("Internal storage", readableFolderPath(tree + "primary%3A"))
+    assertEquals("1A2B-3C4D/Comics", readableFolderPath(tree + "1A2B-3C4D%3AComics"))
+    assertEquals("/data/user/0/sample_manga", readableFolderPath("/data/user/0/sample_manga"))
   }
 
   @Test

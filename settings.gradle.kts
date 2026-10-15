@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "MangaReader"
+rootProject.name = "MoonReader"
 
 include(":app")

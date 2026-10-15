@@ -160,7 +160,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = if (!folderUri.isNullOrBlank()) folderUri!! else "No folder selected yet",
+                        text = folderUri?.takeIf { it.isNotBlank() }?.let(::readableFolderPath) ?: "No folder selected yet",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -608,7 +608,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "MangaReader v1.0",
+                            text = "Moon Reader v1.0",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -683,4 +683,16 @@ private fun SettingsHeader(title: String) {
         letterSpacing = 1.2.sp,
         modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
     )
+}
+
+/** Turns a SAF tree URI like `…/tree/primary%3AMihon%2Flocal` into `Internal storage/Mihon/local`. */
+internal fun readableFolderPath(uriString: String): String {
+    val uri = Uri.parse(uriString)
+    val docId = uri.pathSegments.takeIf { uri.scheme == "content" && it.firstOrNull() == "tree" }
+        ?.getOrNull(1) ?: return uriString
+    if (uri.authority != "com.android.externalstorage.documents") return docId
+    val volume = docId.substringBefore(':')
+    val path = docId.substringAfter(':', "")
+    val root = if (volume == "primary") "Internal storage" else volume
+    return if (path.isEmpty()) root else "$root/$path"
 }

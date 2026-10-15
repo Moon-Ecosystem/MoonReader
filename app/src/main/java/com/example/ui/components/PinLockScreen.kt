@@ -52,7 +52,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun PinLockScreen(
-    title: String = "MangaReader is Locked",
+    title: String = "Moon Reader is Locked",
     subtitle: String = "Enter your 4-digit passcode to continue",
     onPinComplete: (String) -> Boolean,
     onCancel: (() -> Unit)? = null,

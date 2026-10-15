@@ -6,7 +6,7 @@ import coil.ImageLoaderFactory
 import com.example.data.storage.CbzPageFetcher
 import com.example.data.storage.CbzPageKeyer
 
-class MangaReaderApp : Application(), ImageLoaderFactory {
+class MoonReaderApp : Application(), ImageLoaderFactory {
     // Reader pages are CbzPage refs that Coil reads straight from the chapter archive
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)

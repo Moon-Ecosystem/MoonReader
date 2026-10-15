@@ -40,7 +40,7 @@ private val BaseLightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun MangaReaderTheme(
+fun MoonReaderTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     accentPreset: AccentPreset = AccentPreset.NIGHT_BLUE,
     content: @Composable () -> Unit
