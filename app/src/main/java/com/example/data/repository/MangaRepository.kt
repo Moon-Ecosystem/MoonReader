@@ -288,6 +288,7 @@ class MangaRepository(
         } else {
             mangaDao.updateChapterRead(chapterId, isRead, now)
         }
+        if (!isRead) mangaDao.resetLastReadPage(mangaId, chapterId)
     }
 
     // chapter URI -> parsed ComicInfo (null = archive has none); cleared on rescan in case files changed

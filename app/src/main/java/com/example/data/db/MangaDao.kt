@@ -44,8 +44,12 @@ interface MangaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveChapterProgress(progress: ChapterProgressEntity)
 
-    @Query("UPDATE chapter_progress SET isRead = :isRead, lastUpdatedTime = :time WHERE chapterId = :chapterId")
+    // Marking unread also starts the chapter over from the first page
+    @Query("UPDATE chapter_progress SET isRead = :isRead, lastReadPage = CASE WHEN :isRead THEN lastReadPage ELSE 0 END, lastUpdatedTime = :time WHERE chapterId = :chapterId")
     suspend fun updateChapterRead(chapterId: String, isRead: Boolean, time: Long)
+
+    @Query("UPDATE manga_library SET lastReadPage = 0 WHERE id = :mangaId AND lastReadChapterId = :chapterId")
+    suspend fun resetLastReadPage(mangaId: String, chapterId: String)
 
     @Query("UPDATE chapter_progress SET isBookmarked = :isBookmarked, lastUpdatedTime = :time WHERE chapterId = :chapterId")
     suspend fun updateChapterBookmark(chapterId: String, isBookmarked: Boolean, time: Long)
