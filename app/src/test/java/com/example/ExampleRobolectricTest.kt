@@ -151,7 +151,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `marking chapters read or unread persists, keeps the page and updates library progress`() = kotlinx.coroutines.runBlocking {
+  fun `marking chapters read or unread persists, unread restarts the chapter and library progress follows`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
     val repo = com.example.data.repository.MangaRepository(context, dao, PreferencesManager(context))
@@ -161,11 +161,14 @@ class ExampleRobolectricTest {
     // Chapter 1 partially read, then marked read and unread again from the chapter list
     repo.saveReadingProgress(mangaId, "c1", "Chapter 1", page = 12, totalPages = 30, isCompleted = false)
     repo.markChapterRead("c1", mangaId, true)
-    assertTrue(dao.getProgressForChapterOnce("c1")!!.isRead)
+    val read = dao.getProgressForChapterOnce("c1")!!
+    assertTrue(read.isRead)
+    assertEquals("marking read keeps the position", 12, read.lastReadPage)
     repo.markChapterRead("c1", mangaId, false)
     val c1 = dao.getProgressForChapterOnce("c1")!!
     assertFalse(c1.isRead)
-    assertEquals("saved position must survive toggling", 12, c1.lastReadPage)
+    assertEquals("unread chapters start from the first page (#30)", 0, c1.lastReadPage)
+    assertEquals("continue reading card resets too", 0, dao.getMangaByIdOnce(mangaId)!!.lastReadPage)
 
     // Never-opened chapters can be marked read; library progress follows
     repo.markChapterRead("c2", mangaId, true)
