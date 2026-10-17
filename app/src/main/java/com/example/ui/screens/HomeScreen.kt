@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -378,7 +379,9 @@ fun HomeScreen(
                             items(mangaList, key = { it.id }) { manga ->
                                 ModernMangaCard(
                                     manga = manga,
-                                    onClick = { viewModel.selectManga(manga) }
+                                    onClick = { viewModel.selectManga(manga) },
+                                    onMarkRead = { viewModel.markMangaRead(manga, it) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(manga) }
                                 )
                             }
                         }
@@ -583,11 +586,15 @@ private fun EmptyFilterCard(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ModernMangaCard(
     manga: Manga,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onMarkRead: (Boolean) -> Unit,
+    onToggleFavorite: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
@@ -606,10 +613,11 @@ private fun ModernMangaCard(
             .fillMaxWidth()
             .scale(scale)
             .clip(RoundedCornerShape(12.dp))
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = onClick,
+                onLongClick = { showMenu = true }
             )
             .testTag("manga_card_${manga.id}")
     ) {
@@ -693,6 +701,25 @@ private fun ModernMangaCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp
+        )
+    }
+
+    // Anchored to the grid cell, not the card, so the press-scale animation doesn't shift it
+    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+        DropdownMenuItem(
+            text = { Text("Mark as read") },
+            onClick = { showMenu = false; onMarkRead(true) },
+            modifier = Modifier.testTag("option_mark_read")
+        )
+        DropdownMenuItem(
+            text = { Text("Mark as unread") },
+            onClick = { showMenu = false; onMarkRead(false) },
+            modifier = Modifier.testTag("option_mark_unread")
+        )
+        DropdownMenuItem(
+            text = { Text(if (manga.isFavorite) "Remove from favorites" else "Add to favorites") },
+            onClick = { showMenu = false; onToggleFavorite() },
+            modifier = Modifier.testTag("option_toggle_favorite")
         )
     }
 }

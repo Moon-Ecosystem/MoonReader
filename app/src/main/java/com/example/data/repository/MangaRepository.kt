@@ -291,6 +291,15 @@ class MangaRepository(
         if (!isRead) mangaDao.resetLastReadPage(mangaId, chapterId)
     }
 
+    /** Marks every scanned chapter of [mangaId] read or unread; returns those chapters. */
+    suspend fun markMangaRead(mangaId: String, isRead: Boolean): List<Chapter> {
+        val chapters = _scannedChapters.value[mangaId].orEmpty()
+        chapters.forEach { markChapterRead(it.id, mangaId, isRead) }
+        // Fully unread means never started: leaves the Reading tab and Continue Reading, shows under Unread
+        if (!isRead) mangaDao.clearLastRead(mangaId)
+        return chapters
+    }
+
     // chapter URI -> parsed ComicInfo (null = archive has none); cleared on rescan in case files changed
     private val comicInfoCache = java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<ComicInfo>>()
 

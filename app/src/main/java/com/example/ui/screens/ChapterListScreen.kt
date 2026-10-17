@@ -55,6 +55,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -105,6 +107,28 @@ fun ChapterListScreen(
     // Real metadata from the first chapter's ComicInfo.xml; null when the archive has none
     val info by viewModel.selectedMangaInfo.collectAsStateWithLifecycle()
     var showMenu by remember { mutableStateOf(false) }
+    var showFullCover by remember { mutableStateOf(false) }
+    if (showFullCover && !manga.coverPath.isNullOrBlank()) {
+        Dialog(
+            onDismissRequest = { showFullCover = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { showFullCover = false },
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = File(manga.coverPath),
+                    contentDescription = "Cover for ${manga.title}",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
     var isSummaryExpanded by remember(manga.id) { mutableStateOf(false) }
     val track by viewModel.selectedTrack.collectAsStateWithLifecycle()
     var showTrackingSheet by remember { mutableStateOf(false) }
@@ -272,11 +296,8 @@ fun ChapterListScreen(
                                 .size(width = 110.dp, height = 155.dp)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
+                                .clickable(enabled = !manga.coverPath.isNullOrBlank()) { showFullCover = true }
+                                .testTag("cover_image")
                         ) {
                             if (!manga.coverPath.isNullOrBlank()) {
                                 AsyncImage(
@@ -298,12 +319,18 @@ fun ChapterListScreen(
 
                             // Tap to change cover badge icon
                             Surface(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .padding(6.dp)
                                     .size(28.dp)
+                                    .testTag("change_cover")
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
