@@ -115,6 +115,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isUnspecified
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1026,6 +1029,8 @@ fun ZoomableMangaPage(
     val zoomScope = rememberCoroutineScope()
     val flingDecay = rememberSplineBasedDecay<Offset>()
     var flingJob by remember { mutableStateOf<Job?>(null) }
+    // The decoded page's size; pan limits follow the page as fitted on screen, not the whole view
+    var imageSize by remember(page) { mutableStateOf(Size.Unspecified) }
     val context = LocalContext.current
 
     val imageRequest = remember(page) {
@@ -1042,21 +1047,26 @@ fun ZoomableMangaPage(
             .pointerInput(page) {
                 detectMangaZoomAndPan(
                     onTransform = { zoomChange, panChange, centroid ->
-                        val (s, o) = zoomedTransform(scale, Offset(offsetX, offsetY), zoomChange, panChange, centroid, size)
+                        val (s, o) = zoomedTransform(
+                            scale, Offset(offsetX, offsetY), zoomChange, panChange, centroid, size,
+                            fittedSize(imageSize, size)
+                        )
                         scale = s
                         offsetX = o.x
                         offsetY = o.y
                     },
                     onGestureStart = { flingJob?.cancel() },
                     onFling = { v ->
-                        flingJob = zoomScope.flingPan(Offset(offsetX, offsetY), v, scale, size, flingDecay) {
+                        flingJob = zoomScope.flingPan(
+                            Offset(offsetX, offsetY), v, scale, size, fittedSize(imageSize, size), flingDecay
+                        ) {
                             offsetX = it.x
                             offsetY = it.y
                         }
                     },
                     isZoomed = { scale > 1.05f },
                     isAtHorizontalEdge = { dragX ->
-                        val maxOffsetX = (scale - 1f) * size.width / 2f
+                        val maxOffsetX = maxPan(scale, size, fittedSize(imageSize, size)).x
                         // Finger moving right reveals the left side: hand over once that side is fully shown
                         if (dragX > 0f) offsetX >= maxOffsetX - 1f else offsetX <= -maxOffsetX + 1f
                     }
@@ -1078,7 +1088,9 @@ fun ZoomableMangaPage(
                         }
                     },
                     onDoubleTap = { tap ->
-                        zoomScope.animateDoubleTapZoom(tap, size, scale, Offset(offsetX, offsetY)) { s, o ->
+                        zoomScope.animateDoubleTapZoom(
+                            tap, size, fittedSize(imageSize, size), scale, Offset(offsetX, offsetY)
+                        ) { s, o ->
                             scale = s
                             offsetX = o.x
                             offsetY = o.y
@@ -1103,7 +1115,10 @@ fun ZoomableMangaPage(
             model = imageRequest,
             contentDescription = "Manga Page ${page.index + 1}",
             contentScale = ContentScale.Fit,
-            onState = { loadState = it },
+            onState = { state ->
+                loadState = state
+                if (state is AsyncImagePainter.State.Success) imageSize = state.painter.intrinsicSize
+            },
             modifier = Modifier
                 .fillMaxSize()
                 // Lambda form reads the state in the draw phase only, so panning doesn't recompose every frame
@@ -1188,16 +1203,21 @@ fun ZoomableWebtoonPage(
         modifier = Modifier
             .fillMaxWidth()
             .pointerInput(page) {
+                // The row is exactly as big as the page (fill width), so the page's on-screen size is the view's
                 detectMangaZoomAndPan(
                     onTransform = { zoomChange, panChange, centroid ->
-                        val (s, o) = zoomedTransform(scale, Offset(offsetX, offsetY), zoomChange, panChange, centroid, size)
+                        val (s, o) = zoomedTransform(
+                            scale, Offset(offsetX, offsetY), zoomChange, panChange, centroid, size, size.toSize()
+                        )
                         scale = s
                         offsetX = o.x
                         offsetY = o.y
                     },
                     onGestureStart = { flingJob?.cancel() },
                     onFling = { v ->
-                        flingJob = zoomScope.flingPan(Offset(offsetX, offsetY), v, scale, size, flingDecay) {
+                        flingJob = zoomScope.flingPan(
+                            Offset(offsetX, offsetY), v, scale, size, size.toSize(), flingDecay
+                        ) {
                             offsetX = it.x
                             offsetY = it.y
                         }
@@ -1209,7 +1229,7 @@ fun ZoomableWebtoonPage(
                 detectTapGestures(
                     onTap = { onCenterTap() },
                     onDoubleTap = { tap ->
-                        zoomScope.animateDoubleTapZoom(tap, size, scale, Offset(offsetX, offsetY)) { s, o ->
+                        zoomScope.animateDoubleTapZoom(tap, size, size.toSize(), scale, Offset(offsetX, offsetY)) { s, o ->
                             scale = s
                             offsetX = o.x
                             offsetY = o.y
@@ -1300,19 +1320,18 @@ fun ZoomableWebtoonPage(
 private fun CoroutineScope.animateDoubleTapZoom(
     tap: Offset,
     size: IntSize,
+    content: Size,
     scale: Float,
     offset: Offset,
     apply: (scale: Float, offset: Offset) -> Unit
 ) {
     val zoomIn = scale <= 1.05f
     val toScale = if (zoomIn) 2f else 1f
-    val maxX = (toScale - 1f) * size.width / 2f
-    val maxY = (toScale - 1f) * size.height / 2f
     // graphicsLayer scales around the centre, so moving tap point p to the centre needs offset -s * (p - centre)
     val toOffset = if (zoomIn) {
-        Offset(
-            (-(tap.x - size.width / 2f) * toScale).coerceIn(-maxX, maxX),
-            (-(tap.y - size.height / 2f) * toScale).coerceIn(-maxY, maxY)
+        clampOffset(
+            Offset(-(tap.x - size.width / 2f) * toScale, -(tap.y - size.height / 2f) * toScale),
+            toScale, size, content
         )
     } else {
         Offset.Zero
@@ -1394,20 +1413,40 @@ private fun zoomedTransform(
     zoomChange: Float,
     pan: Offset,
     centroid: Offset,
-    size: IntSize
+    size: IntSize,
+    content: Size
 ): Pair<Float, Offset> {
     val newScale = (scale * zoomChange).coerceIn(1f, 5f)
     if (newScale <= 1f) return 1f to Offset.Zero
     val k = newScale / scale
     val center = Offset(size.width / 2f, size.height / 2f)
     val raw = (centroid - center) * (1f - k) + offset * k + pan
-    return newScale to clampOffset(raw, newScale, size)
+    return newScale to clampOffset(raw, newScale, size, content)
 }
 
-private fun clampOffset(offset: Offset, scale: Float, size: IntSize): Offset {
-    val maxX = (scale - 1f) * size.width / 2f
-    val maxY = (scale - 1f) * size.height / 2f
-    return Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
+/**
+ * The page's size on screen at 1x: [intrinsic] fitted inside [view] (ContentScale.Fit). The view size while the
+ * image hasn't loaded yet.
+ */
+internal fun fittedSize(intrinsic: Size, view: IntSize): Size {
+    if (intrinsic.isUnspecified || intrinsic.width <= 0f || intrinsic.height <= 0f) return view.toSize()
+    val k = minOf(view.width / intrinsic.width, view.height / intrinsic.height)
+    return Size(intrinsic.width * k, intrinsic.height * k)
+}
+
+/**
+ * How far a page of on-screen size [content] can be panned each way at [scale] before its edge would pull away
+ * from the view's edge. Zero on an axis where the zoomed page still fits, so the letterbox bars of a page narrower
+ * or shorter than the screen can't be panned into.
+ */
+internal fun maxPan(scale: Float, view: IntSize, content: Size): Offset = Offset(
+    ((content.width * scale - view.width) / 2f).coerceAtLeast(0f),
+    ((content.height * scale - view.height) / 2f).coerceAtLeast(0f)
+)
+
+private fun clampOffset(offset: Offset, scale: Float, size: IntSize, content: Size): Offset {
+    val max = maxPan(scale, size, content)
+    return Offset(offset.x.coerceIn(-max.x, max.x), offset.y.coerceIn(-max.y, max.y))
 }
 
 /** Lets a zoomed page keep gliding after a pan and slow down naturally, stopping at the page edges. */
@@ -1416,12 +1455,13 @@ private fun CoroutineScope.flingPan(
     velocity: Velocity,
     scale: Float,
     size: IntSize,
+    content: Size,
     decay: DecayAnimationSpec<Offset>,
     apply: (Offset) -> Unit
 ): Job = launch {
     // Clamped every frame, so it simply rests at an edge if it reaches one
     AnimationState(Offset.VectorConverter, start, Offset(velocity.x, velocity.y)).animateDecay(decay) {
-        apply(clampOffset(value, scale, size))
+        apply(clampOffset(value, scale, size, content))
     }
 }
 
