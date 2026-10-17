@@ -226,52 +226,39 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (list.any { it.id == id }) id else PreferencesManager.ALL_COLLECTIONS
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesManager.ALL_COLLECTIONS)
 
-    // Status + favorites-only filter, and the series in the selected collection (null for All)
     private val libraryFilterFlow = combine(
         preferencesManager.libraryStatus,
-        preferencesManager.libraryFavoritesOnly,
-        selectedCollection,
-        collectionMembers
-    ) { status, favoritesOnly, collection, members ->
-        Triple(status, favoritesOnly, if (collection == PreferencesManager.ALL_COLLECTIONS) null else members[collection].orEmpty())
-    }
-
-    /** Series per tab with the current filter applied: [PreferencesManager.ALL_COLLECTIONS] and each collection id. */
-    val collectionCounts: StateFlow<Map<Long, Int>> = combine(
-        libraryManga,
-        preferencesManager.libraryStatus,
-        preferencesManager.libraryFavoritesOnly,
-        collectionMembers,
-        collections
-    ) { library, status, favoritesOnly, members, list ->
-        val visible = filterLibrary(library, status, favoritesOnly)
-        mapOf(PreferencesManager.ALL_COLLECTIONS to visible.size) +
-            list.associate { c -> c.id to visible.count { it.id in members[c.id].orEmpty() } }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+        preferencesManager.libraryFavoritesOnly
+    ) { status, favoritesOnly -> status to favoritesOnly }
 
     private val librarySortFlow = combine(
         preferencesManager.librarySort,
         preferencesManager.librarySortAscending
     ) { sort, ascending -> sort to ascending }
 
-    // Filtered and sorted manga for Home/Search
+    /**
+     * Each home screen tab's series, filtered and sorted: [PreferencesManager.ALL_COLLECTIONS] and every collection
+     * id. Every tab is ready so swiping shows the next tab's grid while it slides in; the sizes are the tab counts.
+     */
+    val homeLibrary: StateFlow<Map<Long, List<Manga>>> = combine(
+        libraryManga,
+        libraryFilterFlow,
+        collectionMembers,
+        collections,
+        librarySortFlow
+    ) { library, (status, favoritesOnly), members, list, (sort, ascending) ->
+        val visible = sortLibrary(filterLibrary(library, status, favoritesOnly), sort, ascending)
+        mapOf(PreferencesManager.ALL_COLLECTIONS to visible) +
+            list.associate { c -> c.id to members[c.id].orEmpty().let { ids -> visible.filter { it.id in ids } } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** Search results: the whole library matching the query, sorted; collections and filters only narrow Home. */
     val filteredManga: StateFlow<List<Manga>> = combine(
         libraryManga,
         _searchQuery,
-        libraryFilterFlow,
-        _currentTab,
         librarySortFlow
-    ) { mangaList, query, (status, favoritesOnly, collectionIds), tab, (sort, ascending) ->
-        var list = mangaList
-        if (query.isNotBlank()) {
-            list = list.filter { it.title.contains(query, ignoreCase = true) }
-        }
-
-        // Search looks through the whole library; collections and filters only narrow the home screen
-        if (tab == NavTab.HOME) {
-            if (collectionIds != null) list = list.filter { it.id in collectionIds }
-            list = filterLibrary(list, status, favoritesOnly)
-        }
+    ) { mangaList, query, (sort, ascending) ->
+        val list = if (query.isBlank()) mangaList else mangaList.filter { it.title.contains(query, ignoreCase = true) }
         sortLibrary(list, sort, ascending)
     }.stateIn(
         scope = viewModelScope,

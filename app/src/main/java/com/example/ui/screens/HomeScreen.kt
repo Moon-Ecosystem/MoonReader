@@ -88,6 +88,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -137,7 +138,7 @@ fun HomeScreen(
     onSelectFolderClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val mangaList by viewModel.filteredManga.collectAsStateWithLifecycle()
+    val homeLibrary by viewModel.homeLibrary.collectAsStateWithLifecycle()
     val totalLibraryManga by viewModel.libraryManga.collectAsStateWithLifecycle(emptyList())
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
     val libraryStatus by viewModel.preferencesManager.libraryStatus.collectAsStateWithLifecycle()
@@ -145,7 +146,6 @@ fun HomeScreen(
     val collections by viewModel.collections.collectAsStateWithLifecycle()
     val collectionMembers by viewModel.collectionMembers.collectAsStateWithLifecycle()
     val selectedCollection by viewModel.selectedCollection.collectAsStateWithLifecycle()
-    val collectionCounts by viewModel.collectionCounts.collectAsStateWithLifecycle()
 
     // Collection dialogs: the series whose collections are being edited, the series a new collection is
     // created for (NEW_COLLECTION_ONLY from the "+" tab), and the collection being renamed or deleted
@@ -369,11 +369,32 @@ fun HomeScreen(
                         }
                     }
                 } else {
+                    // One pager page per tab; swiping the grid sideways moves between collections
+                    val tabIds = remember(collections) {
+                        listOf(PreferencesManager.ALL_COLLECTIONS) + collections.map { it.id }
+                    }
+                    val pagerState = rememberPagerState(
+                        initialPage = tabIds.indexOf(selectedCollection).coerceAtLeast(0)
+                    ) { tabIds.size }
+                    // Tab tapped (or the remembered tab loaded): slide to it
+                    LaunchedEffect(selectedCollection, tabIds) {
+                        val index = tabIds.indexOf(selectedCollection)
+                        if (index >= 0 && index != pagerState.currentPage) pagerState.animateScrollToPage(index)
+                    }
+                    // Swiped: select the tab the pager settled on. Compared with the current selection, so the
+                    // pager's first page (All, before collections load) never overwrites the remembered tab
+                    LaunchedEffect(pagerState, tabIds) {
+                        snapshotFlow { pagerState.settledPage }.collect { page ->
+                            val id = tabIds.getOrNull(page) ?: return@collect
+                            if (id != viewModel.selectedCollection.value) viewModel.selectCollection(id)
+                        }
+                    }
+
                     // Pinned above the grid so the tabs stay reachable while scrolling
                     CollectionTabs(
                         collections = collections,
                         selected = selectedCollection,
-                        counts = collectionCounts,
+                        counts = homeLibrary.mapValues { it.value.size },
                         onSelect = viewModel::selectCollection,
                         onCreate = { newCollectionFor = NEW_COLLECTION_ONLY },
                         onRename = { renamingCollection = it },
@@ -392,6 +413,15 @@ fun HomeScreen(
                         onRefresh = { viewModel.scanLibrary() },
                         modifier = Modifier.fillMaxSize()
                     ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        key = { page -> tabIds.getOrElse(page) { page.toLong() } },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("collection_pager")
+                    ) { page ->
+                    val tabId = tabIds.getOrElse(page) { PreferencesManager.ALL_COLLECTIONS }
+                    val mangaList = homeLibrary[tabId].orEmpty()
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 108.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -407,7 +437,7 @@ fun HomeScreen(
                                 EmptyFilterCard(
                                     status = libraryStatus,
                                     favoritesOnly = favoritesOnly,
-                                    inCollection = selectedCollection != PreferencesManager.ALL_COLLECTIONS,
+                                    inCollection = tabId != PreferencesManager.ALL_COLLECTIONS,
                                     onResetFilter = viewModel::resetLibraryFilter
                                 )
                             }
@@ -422,6 +452,7 @@ fun HomeScreen(
                                 )
                             }
                         }
+                    }
                     }
                     }
                 }
