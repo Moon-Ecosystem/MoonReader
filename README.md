@@ -29,6 +29,7 @@ _Requires Android 7.0 (API 24) or higher._
 - **Page actions:** long-press a page to set it as the series cover, copy it, or save it to your gallery.
 - **Open with Moon Reader:** read a `.cbz` straight from your file manager or browser without adding it to the library.
 - **Library tools:** ComicInfo.xml metadata, natural chapter sorting, filters (All, Reading, Favorites, Unread), sorting, search, custom covers and a Continue Reading shortcut. Long-press a series to mark it read or unread, or to add or remove it from favorites.
+- **Continue Reading widget:** the series you're partway through on your home screen (one cover on a small widget, up to four on a wide one). Tap one to open it at your saved page. Covers are hidden while the PIN lock is on.
 - **Reading statistics:** time read, streaks, chapters and pages read, and personal records. Can be turned off or reset.
 - **[AniList](https://anilist.co/) tracking (optional):** link a series and finished chapters update your list. Progress read offline syncs on the next launch.
 - **Themes and lock:** Material 3 with accent presets or dynamic color, black/gray/light reader backgrounds, and an optional PIN lock.

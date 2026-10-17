@@ -215,6 +215,28 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `widget lists started unfinished series, most recent first`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    fun manga(id: String, lastRead: Long, chapters: Int = 2) = com.example.data.db.MangaEntity(
+      id = id, title = id, folderUriString = id, totalChapters = chapters,
+      lastReadChapterId = if (lastRead > 0) "$id-c1" else null, lastReadTime = lastRead
+    )
+    // Times far in the future so other tests' rows in the shared database sort after these
+    val base = 4_000_000_000_000L
+    dao.insertOrUpdateMangaList(
+      listOf(manga("w_old", base + 1), manga("w_new", base + 3), manga("w_done", base + 2, chapters = 1), manga("w_never", 0))
+    )
+    dao.saveChapterProgress(com.example.data.db.ChapterProgressEntity(chapterId = "w_done-c1", mangaId = "w_done", chapterTitle = "", isRead = true))
+
+    val ids = dao.getInProgressManga(10).map { it.id }
+    assertEquals(listOf("w_new", "w_old"), ids.filter { it.startsWith("w_") })
+    assertEquals(1, com.example.widget.ContinueReadingWidget.slotCount(70))
+    assertEquals(3, com.example.widget.ContinueReadingWidget.slotCount(250))
+    assertEquals(4, com.example.widget.ContinueReadingWidget.slotCount(600))
+  }
+
+  @Test
   fun `scan lists manga without generating covers, then covers are filled in`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val root = java.io.File(context.cacheDir, "cover_scan_lib").apply { deleteRecursively(); mkdirs() }

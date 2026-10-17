@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.time.LocalDate
 
@@ -327,13 +329,23 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     fun resumeReading(manga: Manga) {
         selectManga(manga)
         viewModelScope.launch {
-            val chapters = repository.getChaptersForManga(manga.id).firstOrNull() ?: emptyList()
+            // On a cold start (e.g. from the widget) the chapter list fills in when the launch scan finishes
+            val chapters = withTimeoutOrNull(10_000) {
+                repository.getChaptersForManga(manga.id).first { it.isNotEmpty() }
+            } ?: emptyList()
             val targetChapter = chapters.find { it.id == manga.lastReadChapterId }
                 ?: chapters.firstOrNull { !it.isRead }
                 ?: chapters.firstOrNull()
             if (targetChapter != null) {
                 selectChapter(targetChapter)
             }
+        }
+    }
+
+    /** Resumes a series picked on the home screen widget. */
+    fun resumeReading(mangaId: String) {
+        viewModelScope.launch {
+            repository.libraryManga.first().find { it.id == mangaId }?.let { resumeReading(it) }
         }
     }
 

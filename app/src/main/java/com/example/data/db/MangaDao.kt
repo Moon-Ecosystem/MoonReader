@@ -11,6 +11,14 @@ interface MangaDao {
     @Query("SELECT * FROM manga_library ORDER BY lastReadTime DESC, title ASC")
     fun getAllManga(): Flow<List<MangaEntity>>
 
+    /** Started but not finished, most recently read first (the Reading tab's rule, for the home screen widget). */
+    @Query(
+        """SELECT * FROM manga_library WHERE lastReadTime > 0 AND lastReadChapterId IS NOT NULL
+        AND totalChapters > (SELECT COUNT(*) FROM chapter_progress p WHERE p.mangaId = manga_library.id AND p.isRead)
+        ORDER BY lastReadTime DESC LIMIT :limit"""
+    )
+    suspend fun getInProgressManga(limit: Int): List<MangaEntity>
+
     @Query("SELECT * FROM manga_library WHERE id = :id LIMIT 1")
     fun getMangaById(id: String): Flow<MangaEntity?>
 
