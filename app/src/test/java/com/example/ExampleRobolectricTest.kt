@@ -183,6 +183,38 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `marking a whole manga read or unread from the library covers every chapter`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val root = java.io.File(context.cacheDir, "mark_manga_lib").apply { deleteRecursively(); mkdirs() }
+    val dir = java.io.File(root, "Book").apply { mkdirs() }
+    for (ch in 1..3) {
+      java.util.zip.ZipOutputStream(java.io.FileOutputStream(java.io.File(dir, "Ch $ch.cbz"))).use { zos ->
+        zos.putNextEntry(java.util.zip.ZipEntry("p1.jpg"))
+        zos.write("page".toByteArray())
+        zos.closeEntry()
+      }
+    }
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    val repo = com.example.data.repository.MangaRepository(
+      context, dao, PreferencesManager(context).apply { setFolderUri(root.absolutePath) }
+    )
+    repo.scanCurrentLibrary()
+    val mangaId = repo.libraryManga.first { it.isNotEmpty() }.single().id
+    fun entry() = kotlinx.coroutines.runBlocking {
+      repo.libraryManga.first { list -> list.any { it.id == mangaId } }.first { it.id == mangaId }
+    }
+
+    val chapters = repo.markMangaRead(mangaId, true)
+    assertEquals(3, chapters.size)
+    assertTrue(entry().isCompleted)
+    repo.saveReadingProgress(mangaId, chapters[0].id, "Ch 1", page = 3, totalPages = 10, isCompleted = false)
+    repo.markMangaRead(mangaId, false)
+    assertEquals(0, entry().readChapterCount)
+    assertEquals("no longer counts as being read", 0L, entry().lastReadTime)
+    assertEquals(null, entry().lastReadChapterId)
+  }
+
+  @Test
   fun `scan lists manga without generating covers, then covers are filled in`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val root = java.io.File(context.cacheDir, "cover_scan_lib").apply { deleteRecursively(); mkdirs() }

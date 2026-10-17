@@ -654,6 +654,14 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (isRead) onChapterFinished(_selectedManga.value?.id ?: chapter.mangaId, chapter)
     }
 
+    fun markMangaRead(manga: Manga, isRead: Boolean) {
+        viewModelScope.launch {
+            val chapters = repository.markMangaRead(manga.id, isRead)
+            // Tracking only ever raises progress, so reporting the last chapter covers them all
+            if (isRead) chapters.lastOrNull()?.let { onChapterFinished(manga.id, it) }
+        }
+    }
+
     // --- AniList tracking ---
 
     private fun onChapterFinished(mangaId: String, chapter: Chapter) {

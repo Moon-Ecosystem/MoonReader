@@ -48,6 +48,9 @@ interface MangaDao {
     @Query("UPDATE chapter_progress SET isRead = :isRead, lastReadPage = CASE WHEN :isRead THEN lastReadPage ELSE 0 END, lastUpdatedTime = :time WHERE chapterId = :chapterId")
     suspend fun updateChapterRead(chapterId: String, isRead: Boolean, time: Long)
 
+    @Query("UPDATE manga_library SET lastReadChapterId = NULL, lastReadChapterTitle = NULL, lastReadPage = 0, lastReadTime = 0 WHERE id = :mangaId")
+    suspend fun clearLastRead(mangaId: String)
+
     @Query("UPDATE manga_library SET lastReadPage = 0 WHERE id = :mangaId AND lastReadChapterId = :chapterId")
     suspend fun resetLastReadPage(mangaId: String, chapterId: String)
 
