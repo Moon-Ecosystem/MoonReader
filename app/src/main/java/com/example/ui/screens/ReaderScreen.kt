@@ -95,6 +95,7 @@ import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -1105,12 +1106,13 @@ fun ZoomableMangaPage(
             onState = { loadState = it },
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
+                // Lambda form reads the state in the draw phase only, so panning doesn't recompose every frame
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
                     translationY = offsetY
-                )
+                }
         )
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
@@ -1233,12 +1235,13 @@ fun ZoomableWebtoonPage(
             onState = { loadState = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offsetX,
+                // Lambda form reads the state in the draw phase only, so panning doesn't recompose every frame
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offsetX
                     translationY = offsetY
-                )
+                }
         )
         when (loadState) {
             is AsyncImagePainter.State.Success -> Unit
@@ -1345,7 +1348,8 @@ private suspend fun PointerInputScope.detectMangaZoomAndPan(
 
             // Only a one-finger pan's tail counts toward the fling; a pinch resets it
             if (pointerCount == 1) {
-                event.changes.first().let { velocity.addPosition(it.uptimeMillis, it.position) }
+                // Includes the batched historical samples, so the fling speed matches the finger
+                velocity.addPointerInputChange(event.changes.first())
             } else {
                 velocity.resetTracking()
             }
