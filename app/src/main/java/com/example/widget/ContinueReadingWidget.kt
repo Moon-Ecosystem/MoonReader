@@ -55,8 +55,16 @@ class ContinueReadingWidget : AppWidgetProvider() {
             Slot(R.id.slot_3, R.id.cover_3, R.id.title_3, R.id.chapter_3)
         )
 
-        /** One cover per ~80 dp of widget width, so a small widget shows the latest series only. */
-        internal fun slotCount(widthDp: Int) = (widthDp / 80).coerceIn(1, SLOTS.size)
+        /**
+         * How many covers fit side by side. Each slot is as wide as a cover of the widget's height (covers are about
+         * 0.7 as wide as tall, below them sit two text lines and around them 8 dp padding), but at least 80 dp, so a
+         * tall widget shows fewer, bigger covers instead of thin strips, and a small one only the latest series.
+         */
+        internal fun slotCount(widthDp: Int, heightDp: Int): Int {
+            val coverHeight = (heightDp - 16 - 34).coerceAtLeast(0)
+            val slotWidth = maxOf(80f, coverHeight * 0.7f + 6f)
+            return (widthDp / slotWidth).toInt().coerceIn(1, SLOTS.size)
+        }
 
         /** Redraws every placed widget; called when the app goes to the background. */
         fun refresh(context: Context) {
@@ -74,8 +82,11 @@ class ContinueReadingWidget : AppWidgetProvider() {
             else AppDatabase.getDatabase(context).mangaDao().getInProgressManga(SLOTS.size)
             val covers = reading.associate { it.id to it.coverPath?.let(::decodeCover) }
             for (id in ids) {
-                val width = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
-                manager.updateAppWidget(id, views(context, reading.take(slotCount(width)), covers, locked))
+                // Portrait size: launchers report it as the minimum width and the maximum height
+                val options = manager.getAppWidgetOptions(id)
+                val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
+                val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 110)
+                manager.updateAppWidget(id, views(context, reading.take(slotCount(width, height)), covers, locked))
             }
         }
 

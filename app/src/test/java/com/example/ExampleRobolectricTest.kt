@@ -277,9 +277,15 @@ class ExampleRobolectricTest {
 
     val ids = dao.getInProgressManga(10).map { it.id }
     assertEquals(listOf("w_new", "w_old"), ids.filter { it.startsWith("w_") })
-    assertEquals(1, com.example.widget.ContinueReadingWidget.slotCount(70))
-    assertEquals(3, com.example.widget.ContinueReadingWidget.slotCount(250))
-    assertEquals(4, com.example.widget.ContinueReadingWidget.slotCount(600))
+    val slots = com.example.widget.ContinueReadingWidget::slotCount
+    // Default 4x2 widget: covers about 80 dp wide
+    assertEquals(1, slots(70, 150))
+    assertEquals(3, slots(250, 150))
+    assertEquals(4, slots(600, 150))
+    // Resized tall (the reported bug): one big cover instead of four thin strips
+    assertEquals(1, slots(300, 430))
+    // Wide and tall: as many full-size covers as fit
+    assertEquals(2, slots(600, 430))
   }
 
   @Test
