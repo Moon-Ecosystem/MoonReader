@@ -86,7 +86,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 
-/** Mihon-style tracking sheet: search and link the series on AniList, then edit its list entry. */
+/** Tracking sheet: search and link the series on AniList, then edit its list entry. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackingSheet(manga: Manga, viewModel: MangaViewModel, onDismiss: () -> Unit) {
@@ -229,7 +229,7 @@ private fun TrackDetails(
     var draft by remember(track) { mutableStateOf(track) }
     var showMenu by remember { mutableStateOf(false) }
 
-    // Header: cover, title, sync state, open on AniList and a menu for the rarer actions (like Mihon)
+    // Header: cover, title, sync state, open on AniList and a menu for the rarer actions
     Row(verticalAlignment = Alignment.CenterVertically) {
         Cover(track.coverUrl, width = 56.dp, height = 80.dp)
         Spacer(Modifier.width(14.dp))

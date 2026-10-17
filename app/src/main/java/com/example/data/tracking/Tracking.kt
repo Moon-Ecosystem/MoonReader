@@ -99,7 +99,7 @@ fun trackNumbers(chapter: Chapter): Pair<Int?, Int?> {
 }
 
 /**
- * Applies a finished chapter/volume like Mihon does: progress only ever goes up (so rereads change
+ * Applies a finished chapter/volume: progress only ever goes up (so rereads change
  * nothing), reading something starts the entry, and reaching the total completes it.
  */
 fun MangaTrackEntity.withRead(chapter: Int?, volume: Int?, today: String, startedOn: String = today): MangaTrackEntity {

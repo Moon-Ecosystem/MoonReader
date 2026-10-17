@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 /**
- * AniList tracking, modelled on Mihon: the user links a series by hand, reading pushes progress
+ * AniList tracking: the user links a series by hand, reading pushes progress
  * (only ever upwards), and progress read offline stays pending until a later sync gets through.
  */
 class TrackingRepository(

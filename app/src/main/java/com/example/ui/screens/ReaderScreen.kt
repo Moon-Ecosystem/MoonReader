@@ -231,7 +231,7 @@ fun ReaderScreen(
     var showControls by remember { mutableStateOf(true) }
     var showSettingsSheet by remember { mutableStateOf(false) }
 
-    // Like Mihon, the system bars (clock, battery) appear together with the reader menu
+    // The system bars (clock, battery) appear together with the reader menu
     LaunchedEffect(showControls) {
         val window = (context as? Activity)?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -870,7 +870,7 @@ private fun PageOptionsBottomSheet(
                 modifier = Modifier.padding(bottom = 14.dp)
             )
 
-            // Square action tiles side by side, as in Mihon
+            // Square action tiles side by side
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PageActionTile(Icons.Default.Palette, "Set as cover", Modifier.weight(1f).testTag("option_set_cover"), onSetAsCover)
                 PageActionTile(Icons.Default.ContentCopy, "Copy", Modifier.weight(1f).testTag("option_copy"), onCopy)
@@ -1294,7 +1294,7 @@ fun ZoomableWebtoonPage(
  * - Leaves 1-finger horizontal and vertical drags unconsumed when scale is 1f, allowing HorizontalPager and LazyColumn to scroll smoothly.
  */
 /**
- * Mihon-style double tap: animate (500 ms, ease-in-out) to 2x with the tapped point moved to the centre of
+ * Double tap: animate (500 ms, ease-in-out) to 2x with the tapped point moved to the centre of
  * the view, or back to fit when already zoomed.
  */
 private fun CoroutineScope.animateDoubleTapZoom(
@@ -1327,10 +1327,10 @@ private fun CoroutineScope.animateDoubleTapZoom(
 private suspend fun PointerInputScope.detectMangaZoomAndPan(
     onTransform: (zoomChange: Float, panChange: Offset, centroid: Offset) -> Unit,
     isZoomed: () -> Boolean,
-    // Paged reader (Mihon-style): when a zoomed page is already at its left/right edge, a horizontal
+    // Paged reader: when a zoomed page is already at its left/right edge, a horizontal
     // one-finger drag toward that edge is left unconsumed so the pager turns the page
     isAtHorizontalEdge: ((dragX: Float) -> Boolean)? = null,
-    // A new touch stops a running fling, like Mihon
+    // A new touch stops a running fling
     onGestureStart: () -> Unit = {},
     // Release velocity of a one-finger pan while zoomed, to keep the page gliding
     onFling: (Velocity) -> Unit = {}
@@ -1383,8 +1383,8 @@ private suspend fun PointerInputScope.detectMangaZoomAndPan(
 }
 
 /**
- * New scale and offset after a pinch/pan, Mihon-style: zoom around the fingers' centroid, pan 1:1 with the
- * finger, and keep the page covering the view (max 5x like Mihon). The page is drawn with graphicsLayer,
+ * New scale and offset after a pinch/pan: zoom around the fingers' centroid, pan 1:1 with the
+ * finger, and keep the page covering the view (max 5x). The page is drawn with graphicsLayer,
  * which scales around the view centre, so a content point under screen point p stays put when
  * offset' = (p - centre) * (1 - k) + offset * k, with k = newScale / scale.
  */

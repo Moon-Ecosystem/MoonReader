@@ -5,7 +5,7 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.InputStream
 
 /**
- * Metadata from a chapter archive's ComicInfo.xml (the ComicRack format used by Mihon, Komga, Kavita).
+ * Metadata from a chapter archive's ComicInfo.xml (the ComicRack format, widely used by comic readers and servers).
  * Only fields present in the file are set.
  */
 data class ComicInfo(
