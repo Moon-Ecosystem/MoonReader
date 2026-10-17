@@ -40,6 +40,14 @@ enum class LibrarySort(val displayName: String, val ascendingByDefault: Boolean)
     UNREAD("Unread chapters", false)
 }
 
+/** Library status filter; combines with the favorites-only toggle. */
+enum class LibraryStatus(val displayName: String) {
+    ALL("All"),
+    READING("Reading"),
+    NOT_STARTED("Not started"),
+    COMPLETED("Completed")
+}
+
 /**
  * 5 Accent color presets matching the project specifications.
  */

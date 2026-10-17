@@ -30,7 +30,7 @@ class ExampleRobolectricTest {
   @Test
   fun `library folder uri is shown as a readable path`() {
     val tree = "content://com.android.externalstorage.documents/tree/"
-    assertEquals("Internal storage/Mihon/local", readableFolderPath(tree + "primary%3AMihon%2Flocal"))
+    assertEquals("Internal storage/Manga/local", readableFolderPath(tree + "primary%3AManga%2Flocal"))
     assertEquals("Internal storage", readableFolderPath(tree + "primary%3A"))
     assertEquals("1A2B-3C4D/Comics", readableFolderPath(tree + "1A2B-3C4D%3AComics"))
     assertEquals("/data/user/0/sample_manga", readableFolderPath("/data/user/0/sample_manga"))
@@ -212,6 +212,52 @@ class ExampleRobolectricTest {
     assertEquals(0, entry().readChapterCount)
     assertEquals("no longer counts as being read", 0L, entry().lastReadTime)
     assertEquals(null, entry().lastReadChapterId)
+  }
+
+  @Test
+  fun `migration 3 to 4 adds collections without touching existing data`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val name = "migration_3_4_test.db"
+    context.deleteDatabase(name)
+    fun open() = androidx.room.Room.databaseBuilder(context, com.example.data.db.AppDatabase::class.java, name)
+      .addMigrations(
+        com.example.data.db.AppDatabase.MIGRATION_1_2,
+        com.example.data.db.AppDatabase.MIGRATION_2_3,
+        com.example.data.db.AppDatabase.MIGRATION_3_4
+      )
+      .allowMainThreadQueries()
+      .build() // no destructive fallback: a schema mismatch must fail here, not wipe data
+
+    // A version 3 database: today's schema minus the collection tables, with a library row in it
+    open().apply {
+      mangaDao().insertOrUpdateManga(com.example.data.db.MangaEntity(id = "m1", title = "Kept", folderUriString = "m1"))
+      openHelper.writableDatabase.apply {
+        execSQL("DROP TABLE collection_manga")
+        execSQL("DROP TABLE collections")
+        execSQL("PRAGMA user_version = 3")
+      }
+      close()
+    }
+
+    // Reopening runs MIGRATION_3_4, and Room validates the tables it creates
+    val db = open()
+    assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
+    val dao = db.collectionDao()
+    val horror = dao.create("Horror")
+    val seinen = dao.create("Seinen")
+    assertEquals(listOf("Horror" to 0, "Seinen" to 1), dao.observeCollections().first().map { it.name to it.position })
+
+    dao.addMember(com.example.data.db.CollectionMangaEntity(horror, "m1"))
+    dao.addMember(com.example.data.db.CollectionMangaEntity(horror, "m1")) // adding twice is ignored
+    dao.addMember(com.example.data.db.CollectionMangaEntity(seinen, "m1"))
+    assertEquals(2, dao.observeMembers().first().size)
+
+    // Deleting a collection drops its memberships only; the series stays
+    dao.delete(horror)
+    assertEquals(listOf(seinen), dao.observeMembers().first().map { it.collectionId })
+    assertEquals(listOf("Seinen"), dao.observeCollections().first().map { it.name })
+    assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
+    db.close()
   }
 
   @Test

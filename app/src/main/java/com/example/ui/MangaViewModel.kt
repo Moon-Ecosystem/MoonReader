@@ -9,6 +9,7 @@ import com.example.data.ActivityChartMetric
 import com.example.data.Chapter
 import com.example.data.DayActivity
 import com.example.data.LibrarySort
+import com.example.data.LibraryStatus
 import com.example.data.Manga
 import com.example.data.PageRef
 import com.example.data.ReaderFitMode
@@ -24,6 +25,8 @@ import com.example.data.storage.ComicInfo
 import com.example.data.storage.OpenArchives
 import com.example.data.storage.TitleCleaner
 import com.example.data.db.MangaTrackEntity
+import com.example.data.db.CollectionEntity
+import com.example.data.db.CollectionMangaEntity
 import com.example.data.tracking.AniListMedia
 import com.example.data.tracking.TrackingRepository
 import com.example.data.tracking.trackNumbers
@@ -40,6 +43,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -52,9 +56,21 @@ enum class NavTab {
     HOME, STATISTICS, SEARCH, SETTINGS
 }
 
-enum class LibraryFilter {
-    ALL, IN_PROGRESS, UNREAD, FAVORITES
-}
+/**
+ * Keeps the series matching [status] and, if [favoritesOnly], only favorites. A series counts as started once
+ * it was opened or any chapter was marked read, so one marked read from the library isn't "Not started".
+ */
+internal fun filterLibrary(list: List<Manga>, status: LibraryStatus, favoritesOnly: Boolean): List<Manga> =
+    list.filter { manga ->
+        val started = manga.lastReadTime > 0L || manga.readChapterCount > 0
+        val statusMatches = when (status) {
+            LibraryStatus.ALL -> true
+            LibraryStatus.READING -> started && !manga.isCompleted
+            LibraryStatus.NOT_STARTED -> !started
+            LibraryStatus.COMPLETED -> manga.isCompleted
+        }
+        statusMatches && (!favoritesOnly || manga.isFavorite)
+    }
 
 /** Orders the library by [sort]; ties (e.g. never-read manga under "Last read") fall back to title A–Z. */
 internal fun sortLibrary(list: List<Manga>, sort: LibrarySort, ascending: Boolean): List<Manga> {
@@ -195,8 +211,43 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _libraryFilter = MutableStateFlow(LibraryFilter.ALL)
-    val libraryFilter: StateFlow<LibraryFilter> = _libraryFilter.asStateFlow()
+    private val collectionDao = database.collectionDao()
+
+    val collections: StateFlow<List<CollectionEntity>> = collectionDao.observeCollections()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Collection id -> ids of the series in it. */
+    val collectionMembers: StateFlow<Map<Long, Set<String>>> = collectionDao.observeMembers()
+        .map { members -> members.groupBy({ it.collectionId }, { it.mangaId }).mapValues { it.value.toSet() } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** The selected home screen tab; falls back to All once its collection is deleted. */
+    val selectedCollection: StateFlow<Long> = combine(preferencesManager.libraryCollection, collections) { id, list ->
+        if (list.any { it.id == id }) id else PreferencesManager.ALL_COLLECTIONS
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesManager.ALL_COLLECTIONS)
+
+    // Status + favorites-only filter, and the series in the selected collection (null for All)
+    private val libraryFilterFlow = combine(
+        preferencesManager.libraryStatus,
+        preferencesManager.libraryFavoritesOnly,
+        selectedCollection,
+        collectionMembers
+    ) { status, favoritesOnly, collection, members ->
+        Triple(status, favoritesOnly, if (collection == PreferencesManager.ALL_COLLECTIONS) null else members[collection].orEmpty())
+    }
+
+    /** Series per tab with the current filter applied: [PreferencesManager.ALL_COLLECTIONS] and each collection id. */
+    val collectionCounts: StateFlow<Map<Long, Int>> = combine(
+        libraryManga,
+        preferencesManager.libraryStatus,
+        preferencesManager.libraryFavoritesOnly,
+        collectionMembers,
+        collections
+    ) { library, status, favoritesOnly, members, list ->
+        val visible = filterLibrary(library, status, favoritesOnly)
+        mapOf(PreferencesManager.ALL_COLLECTIONS to visible.size) +
+            list.associate { c -> c.id to visible.count { it.id in members[c.id].orEmpty() } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val librarySortFlow = combine(
         preferencesManager.librarySort,
@@ -207,22 +258,19 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     val filteredManga: StateFlow<List<Manga>> = combine(
         libraryManga,
         _searchQuery,
-        _libraryFilter,
+        libraryFilterFlow,
         _currentTab,
         librarySortFlow
-    ) { mangaList, query, filter, tab, (sort, ascending) ->
+    ) { mangaList, query, (status, favoritesOnly, collectionIds), tab, (sort, ascending) ->
         var list = mangaList
         if (query.isNotBlank()) {
             list = list.filter { it.title.contains(query, ignoreCase = true) }
         }
 
+        // Search looks through the whole library; collections and filters only narrow the home screen
         if (tab == NavTab.HOME) {
-            list = when (filter) {
-                LibraryFilter.ALL -> list
-                LibraryFilter.IN_PROGRESS -> list.filter { it.lastReadTime > 0L && !it.isCompleted }
-                LibraryFilter.UNREAD -> list.filter { it.lastReadTime == 0L }
-                LibraryFilter.FAVORITES -> list.filter { it.isFavorite }
-            }
+            if (collectionIds != null) list = list.filter { it.id in collectionIds }
+            list = filterLibrary(list, status, favoritesOnly)
         }
         sortLibrary(list, sort, ascending)
     }.stateIn(
@@ -304,11 +352,46 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _selectedChapter.value = null
     }
 
-    fun setLibraryFilter(filter: LibraryFilter) {
-        _libraryFilter.value = filter
+    fun setLibraryStatus(status: LibraryStatus) =
+        preferencesManager.setLibraryFilter(status, preferencesManager.libraryFavoritesOnly.value)
+
+    fun setLibraryFavoritesOnly(favoritesOnly: Boolean) =
+        preferencesManager.setLibraryFilter(preferencesManager.libraryStatus.value, favoritesOnly)
+
+    fun resetLibraryFilter() = preferencesManager.setLibraryFilter(LibraryStatus.ALL, false)
+
+    // --- Collections ---
+
+    fun selectCollection(id: Long) = preferencesManager.setLibraryCollection(id)
+
+    /** Creates a collection named [name] (ignored when blank), adding [mangaId] to it if given. */
+    fun createCollection(name: String, mangaId: String? = null) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val id = collectionDao.create(trimmed)
+            if (mangaId != null) collectionDao.addMember(CollectionMangaEntity(id, mangaId))
+        }
     }
 
-    /** Picking the active sort flips its direction (like Mihon); a new one starts in its natural direction. */
+    fun renameCollection(id: Long, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch { collectionDao.rename(id, trimmed) }
+    }
+
+    fun deleteCollection(id: Long) {
+        viewModelScope.launch { collectionDao.delete(id) }
+    }
+
+    fun setInCollection(collectionId: Long, mangaId: String, member: Boolean) {
+        viewModelScope.launch {
+            if (member) collectionDao.addMember(CollectionMangaEntity(collectionId, mangaId))
+            else collectionDao.removeMember(collectionId, mangaId)
+        }
+    }
+
+    /** Picking the active sort flips its direction; a new one starts in its natural direction. */
     fun onLibrarySortSelected(sort: LibrarySort) {
         val ascending = if (sort == preferencesManager.librarySort.value) {
             !preferencesManager.librarySortAscending.value
@@ -716,7 +799,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun linkTrack(manga: Manga, media: AniListMedia) {
-        // Bring over what was already read here, like Mihon does on binding
+        // Bring over what was already read here when linking
         val chapters = currentChapters.value
         val read = chapters.filter { it.isRead }.map { trackNumbers(it) }
         val chapter = read.mapNotNull { it.first }.maxOrNull()
