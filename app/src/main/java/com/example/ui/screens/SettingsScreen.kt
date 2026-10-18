@@ -21,8 +21,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
@@ -99,6 +103,26 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    var backupBusy by remember { mutableStateOf(false) }
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) coroutineScope.launch {
+            backupBusy = true
+            val message = viewModel.exportBackup(uri)
+            backupBusy = false
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) coroutineScope.launch {
+            backupBusy = true
+            // Returns only on failure; on success the app restarts
+            val error = viewModel.restoreBackup(uri)
+            backupBusy = false
+            snackbarHostState.showSnackbar(error)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -204,6 +228,87 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Re-scan")
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            SettingsHeader(title = "BACKUP & RESTORE")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Backup,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (backupBusy) "Working…" else "Library Backup",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Progress, stats and settings in one file",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = { exportLauncher.launch("moonreader-backup-${java.time.LocalDate.now()}.zip") },
+                            enabled = !backupBusy,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .testTag("backup_export_btn"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Back Up")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                // Restored IDs are rewritten onto the selected folder, so it has to be chosen first
+                                if (folderUri?.startsWith("content://") == true) {
+                                    showRestoreDialog = true
+                                } else {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Choose your library folder first, so restored progress matches your files")
+                                    }
+                                }
+                            },
+                            enabled = !backupBusy,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .testTag("backup_restore_btn"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Restore,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Restore")
                         }
                     }
                 }
@@ -637,6 +742,37 @@ fun SettingsScreen(
             verifyCurrentPin = { pin -> viewModel.verifyPin(pin) },
             saveNewPin = { pin -> viewModel.setNewPin(pin) },
             disableLock = { viewModel.disableAppLockDirect() }
+        )
+    }
+
+    if (showRestoreDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestoreDialog = false },
+            icon = { Icon(imageVector = Icons.Default.Restore, contentDescription = null) },
+            title = { Text("Restore a Backup?") },
+            text = {
+                Text(
+                    "Your current reading progress, statistics, favorites, collections, AniList links and settings " +
+                        "will be replaced by the backup's. Progress is matched to the files in your selected library " +
+                        "folder. The app restarts when it's done."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRestoreDialog = false
+                        restoreLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                    },
+                    modifier = Modifier.testTag("backup_restore_confirm")
+                ) {
+                    Text("Choose Backup")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 

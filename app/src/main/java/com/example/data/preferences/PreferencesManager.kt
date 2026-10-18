@@ -15,7 +15,7 @@ import java.security.MessageDigest
 
 class PreferencesManager(context: Context) {
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("manga_reader_prefs", Context.MODE_PRIVATE)
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     // Own file so backup rules can exclude the AniList token
     private val authPrefs: SharedPreferences =
@@ -243,6 +243,7 @@ class PreferencesManager(context: Context) {
     }
 
     companion object {
+        const val PREFS_NAME = "manga_reader_prefs"
         private const val KEY_FOLDER_URI = "pref_folder_uri"
         private const val KEY_ACCENT = "pref_accent_preset"
         private const val KEY_READING_DIR = "pref_reading_direction"
@@ -267,5 +268,11 @@ class PreferencesManager(context: Context) {
         private const val KEY_ANILIST_USER_ID = "anilist_user_id"
         private const val KEY_ANILIST_USER_NAME = "anilist_user_name"
         private const val KEY_ANILIST_SCORE_FORMAT = "anilist_score_format"
+
+        /**
+         * Settings a backup leaves out: the folder permission can't move to another install, and a restored
+         * PIN could lock the user out.
+         */
+        val BACKUP_EXCLUDED_KEYS = setOf(KEY_FOLDER_URI, KEY_APP_LOCK_ENABLED, KEY_PIN_HASH)
     }
 }

@@ -24,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun statisticsDao(): StatisticsDao
     abstract fun trackDao(): TrackDao
     abstract fun collectionDao(): CollectionDao
+    abstract fun backupDao(): BackupDao
 
     companion object {
         @Volatile

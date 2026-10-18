@@ -33,6 +33,7 @@ _Requires Android 7.0 (API 24) or higher._
 - **Continue Reading widget:** the series you're partway through on your home screen (one cover on a small widget, up to four on a wide one). Tap one to open it at your saved page. Covers are hidden while the PIN lock is on.
 - **Reading statistics:** time read, streaks, chapters and pages read, and personal records. Can be turned off or reset.
 - **[AniList](https://anilist.co/) tracking (optional):** link a series and finished chapters update your list. Progress read offline syncs on the next launch.
+- **Backup and restore:** save reading progress, read chapters, statistics, favorites, collections, custom covers, AniList links and settings to one `.zip` from Settings, and restore it after a reinstall or on another phone. Pick your library folder first; progress is matched to the same files inside it. Comic files, your PIN and the AniList login aren't included.
 - **Themes and lock:** Material 3 with accent presets or dynamic color, black/gray/light reader backgrounds, and an optional PIN lock.
 
 ## Supported formats
