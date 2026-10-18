@@ -57,6 +57,8 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  // Compress libarchive's native libraries in the APK (~8 MB stored raw); they're unpacked once on install
+  packaging { jniLibs { useLegacyPackaging = true } }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
@@ -100,6 +102,8 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.androidx.documentfile)
+  // Reads .cbr/.rar (RAR4 and RAR5) and .7z chapters; .cbz goes through our own ChannelZip
+  implementation(libs.libarchive)
   // Installs the baseline profiles bundled with Compose/AndroidX for faster startup and scrolling
   implementation(libs.androidx.profileinstaller)
   // implementation(libs.converter.moshi)

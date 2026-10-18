@@ -6,7 +6,7 @@
 
 ### An offline reader for your local Manga and Comics
 
-Read `.cbz` and `.zip` manga and comic archives on Android. No ads, no accounts, no telemetry.
+Read `.cbz`, `.cbr` and `.7z` manga and comic archives on Android. No ads, no accounts, no telemetry.
 
 [![Release](https://img.shields.io/github/v/release/Varun-666/MoonReader?label=Release&labelColor=27303D&color=0877d2)](https://github.com/Varun-666/MoonReader/releases/latest)
 [![Build](https://img.shields.io/github/actions/workflow/status/Varun-666/MoonReader/release.yml?labelColor=27303D)](https://github.com/Varun-666/MoonReader/actions/workflows/release.yml)
@@ -27,20 +27,21 @@ _Requires Android 7.0 (API 24) or higher._
 - **Three reading modes:** right-to-left (manga), left-to-right and vertical webtoon scroll.
 - **Smooth zoom:** pinch up to 5×, pan with fling, double-tap to zoom 2× where you tap.
 - **Page actions:** long-press a page to set it as the series cover, copy it, or save it to your gallery.
-- **Open with Moon Reader:** read a `.cbz` straight from your file manager or browser without adding it to the library.
+- **Open with Moon Reader:** read a `.cbz` or `.cbr` straight from your file manager or browser without adding it to the library.
 - **Library tools:** ComicInfo.xml metadata, natural chapter sorting, combinable filters (Reading, Not started or Completed, plus favorites only), sorting, search, custom covers and a Continue Reading shortcut. Long-press a series to mark it read or unread, add or remove it from favorites, or put it in collections.
 - **Collections:** group series into your own collections, shown as tabs on the home screen with a count on each; swipe sideways to move between them. A series can be in several. Long-press a tab to rename or delete it; deleting never removes the series.
 - **Continue Reading widget:** the series you're partway through on your home screen (one cover on a small widget, up to four on a wide one). Tap one to open it at your saved page. Covers are hidden while the PIN lock is on.
 - **Reading statistics:** time read, streaks, chapters and pages read, and personal records. Can be turned off or reset.
 - **[AniList](https://anilist.co/) tracking (optional):** link a series and finished chapters update your list. Progress read offline syncs on the next launch.
+- **Backup and restore:** save reading progress, read chapters, statistics, favorites, collections, custom covers, AniList links and settings to one `.zip` from Settings, and restore it after a reinstall or on another phone. Pick your library folder first; progress is matched to the same files inside it. Comic files, your PIN and the AniList login aren't included.
 - **Themes and lock:** Material 3 with accent presets or dynamic color, black/gray/light reader backgrounds, and an optional PIN lock.
 
 ## Supported formats
 
-| Format                | Status                                           |
-| :-------------------- | :----------------------------------------------- |
-| `.cbz`, `.zip`        | ✅ Supported                                     |
-| `.cbr`, `.rar`, `.7z` | ⚠️ Shown in the library, but can't be opened yet |
+| Format                | Status                                                    |
+| :-------------------- | :-------------------------------------------------------- |
+| `.cbz`, `.zip`        | ✅ Supported                                              |
+| `.cbr`, `.rar`, `.7z` | ✅ Supported (RAR4 and RAR5); page turns can lag in big solid archives |
 
 Pages can be any common image format (`.jpg`, `.png`, `.webp`, …).
 

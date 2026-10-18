@@ -48,6 +48,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.time.LocalDate
@@ -93,6 +94,7 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     val repository = MangaRepository(application, database.mangaDao(), preferencesManager)
     val statisticsRepository = StatisticsRepository(database.statisticsDao(), database.mangaDao(), preferencesManager)
     private val trackingRepository = TrackingRepository(database.trackDao(), preferencesManager)
+    private val backupRepository = com.example.data.backup.BackupRepository(application, database.backupDao())
 
     // Statistics UI filter state
     private val _selectedTimePeriod = MutableStateFlow(TimePeriod.THIS_WEEK)
@@ -973,6 +975,48 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             statisticsRepository.clearStatistics()
         }
+    }
+
+    // --- Backup ---
+
+    /** Writes a backup to the document at [uri] and returns the message to show. */
+    suspend fun exportBackup(uri: android.net.Uri): String = withContext(Dispatchers.IO) {
+        val app = getApplication<Application>()
+        try {
+            val out = app.contentResolver.openOutputStream(uri, "wt") ?: error("Can't write to the chosen file")
+            out.use { backupRepository.export(it, preferencesManager.folderUri.value) }
+            val size = androidx.documentfile.provider.DocumentFile.fromSingleUri(app, uri)?.length() ?: 0L
+            "Backup saved (${android.text.format.Formatter.formatShortFileSize(app, size)})"
+        } catch (e: Exception) {
+            android.util.Log.e("MangaViewModel", "Backup failed", e)
+            // Don't leave a partial file that looks like a finished backup
+            try { android.provider.DocumentsContract.deleteDocument(app.contentResolver, uri) } catch (_: Exception) {}
+            "Backup failed: ${e.message}"
+        }
+    }
+
+    /**
+     * Replaces the library data with the backup at [uri], then restarts the app so every screen and setting
+     * reloads. Returns an error message if the backup couldn't be restored (nothing is changed then).
+     */
+    suspend fun restoreBackup(uri: android.net.Uri): String {
+        val app = getApplication<Application>()
+        try {
+            withContext(Dispatchers.IO) {
+                val input = app.contentResolver.openInputStream(uri) ?: error("Can't read the chosen file")
+                input.use { backupRepository.restore(it, preferencesManager.folderUri.value) }
+            }
+        } catch (e: com.example.data.backup.BackupException) {
+            return e.message ?: "Restore failed"
+        } catch (e: Exception) {
+            android.util.Log.e("MangaViewModel", "Restore failed", e)
+            return "Restore failed: ${e.message}"
+        }
+        val launch = app.packageManager.getLaunchIntentForPackage(app.packageName)!!
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        app.startActivity(launch)
+        Runtime.getRuntime().exit(0)
+        return ""
     }
 
     fun setTrackStatistics(enabled: Boolean) {

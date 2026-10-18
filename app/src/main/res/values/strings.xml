@@ -10,9 +10,9 @@
     <string name="rescan_library">Re-scan Library</string>
     <string name="load_sample_manga">Load Sample Manga</string>
     <string name="no_folder_selected">No manga folder selected</string>
-    <string name="no_folder_desc">Select a folder containing your manga chapters (.cbz files), or load sample manga to try the reader.</string>
+    <string name="no_folder_desc">Select a folder containing your manga chapters (.cbz or .cbr files), or load sample manga to try the reader.</string>
     <string name="empty_library">No manga found</string>
-    <string name="empty_library_desc">Add folders with .cbz files inside your chosen manga directory.</string>
+    <string name="empty_library_desc">Add folders with .cbz or .cbr files inside your chosen manga directory.</string>
     <string name="chapters_count">%d chapters</string>
     <string name="one_chapter">1 chapter</string>
     <string name="continue_reading">Continue Reading</string>

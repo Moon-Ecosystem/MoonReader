@@ -105,6 +105,14 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `non-ZIP archive falls back to libarchive and fails softly without it`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    // A RAR5 signature: not a ZIP, so the libarchive path runs, and the JVM has no native libarchive
+    val cbr = java.io.File(context.cacheDir, "fake.cbr").apply { writeBytes(byteArrayOf(0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x01, 0x00)) }
+    org.junit.Assert.assertNull(com.example.data.storage.CbzArchive.open(context, cbr.absolutePath))
+  }
+
+  @Test
   fun `cover uses only the first page and nothing is extracted`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val cbz = java.io.File(context.cacheDir, "cover_test.cbz")
