@@ -27,7 +27,7 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- "Open with Moon Reader" for CBZ files from file managers and other apps -->
+            <!-- "Open with Moon Reader" for CBZ/CBR/7z files from file managers and other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -37,6 +37,11 @@
                 <data android:mimeType="application/vnd.comicbook+zip" />
                 <data android:mimeType="application/x-cbz" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="application/vnd.comicbook-rar" />
+                <data android:mimeType="application/x-cbr" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/x-7z-compressed" />
             </intent-filter>
             <!-- AniList login redirect (the client's registered redirect URL) -->
             <intent-filter>
