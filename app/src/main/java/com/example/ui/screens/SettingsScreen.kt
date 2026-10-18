@@ -713,7 +713,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Moon Reader v1.0",
+                            text = "Moon Reader v${com.example.BuildConfig.VERSION_NAME}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
