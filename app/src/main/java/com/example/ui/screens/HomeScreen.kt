@@ -597,7 +597,7 @@ private fun ActiveFilterChips(
 }
 
 @Composable
-private fun FilterChipWithClear(label: String, onClear: () -> Unit, modifier: Modifier = Modifier) {
+internal fun FilterChipWithClear(label: String, onClear: () -> Unit, modifier: Modifier = Modifier) {
     InputChip(
         selected = true,
         onClick = onClear,
@@ -614,7 +614,7 @@ private fun FilterChipWithClear(label: String, onClear: () -> Unit, modifier: Mo
 }
 
 @Composable
-private fun MenuSectionLabel(text: String) {
+internal fun MenuSectionLabel(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelMedium,

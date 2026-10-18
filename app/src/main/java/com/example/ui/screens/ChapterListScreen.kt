@@ -14,6 +14,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,8 +31,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
@@ -43,8 +47,7 @@ import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,7 +56,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -64,7 +71,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -81,8 +90,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.Chapter
+import com.example.data.ChapterFilter
 import com.example.data.Manga
 import com.example.ui.MangaViewModel
+import com.example.ui.visibleChapters
 import com.example.ui.components.stableStatusBars
 import com.example.ui.components.TrackingSheet
 import androidx.compose.foundation.layout.WindowInsets
@@ -146,7 +157,18 @@ fun ChapterListScreen(
     }
 
     val readCount = chapters.count { it.isRead }
-    val progressPercent = if (chapters.isNotEmpty()) (readCount.toFloat() / chapters.size) else 0f
+    val aniListUser by viewModel.preferencesManager.aniListUserName.collectAsStateWithLifecycle()
+
+    // What the list shows; starts over for each series
+    var chapterFilter by rememberSaveable(manga.id) { mutableStateOf(ChapterFilter.ALL) }
+    var bookmarkedOnly by rememberSaveable(manga.id) { mutableStateOf(false) }
+    var byLastRead by rememberSaveable(manga.id) { mutableStateOf(false) }
+    val filtered = chapterFilter != ChapterFilter.ALL || bookmarkedOnly
+    val shownChapters = visibleChapters(chapters, chapterFilter, bookmarkedOnly, byLastRead)
+    var showFilterMenu by remember { mutableStateOf(false) }
+
+    // The bar is see-through over the backdrop and turns solid once the list scrolls under it
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     // Find next chapter to read
     val nextChapter = chapters.firstOrNull { it.id == manga.lastReadChapterId }
@@ -156,15 +178,8 @@ fun ChapterListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = manga.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
+                // The title is shown large beside the cover
+                title = {},
                 navigationIcon = {
                     IconButton(
                         onClick = { viewModel.closeManga() },
@@ -177,6 +192,61 @@ fun ChapterListScreen(
                     }
                 },
                 actions = {
+                    Box {
+                        IconButton(
+                            onClick = { showFilterMenu = true },
+                            modifier = Modifier.testTag("chapter_filter_button")
+                        ) {
+                            // Tinted while filtering; the chips above the list say which filters are on
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = if (filtered) "Filter and sort chapters (filter on)" else "Filter and sort chapters",
+                                tint = if (filtered) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        // Stays open so several options can be set in one go, like the library's menu
+                        DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }) {
+                            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                                Column(modifier = Modifier.width(IntrinsicSize.Max)) {
+                                    MenuSectionLabel("Show")
+                                    ChapterFilter.entries.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.displayName) },
+                                            leadingIcon = { RadioButton(selected = option == chapterFilter, onClick = null) },
+                                            onClick = { chapterFilter = option },
+                                            modifier = Modifier.testTag("chapter_filter_${option.name}")
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Bookmarked") },
+                                        leadingIcon = { Checkbox(checked = bookmarkedOnly, onCheckedChange = null) },
+                                        onClick = { bookmarkedOnly = !bookmarkedOnly },
+                                        modifier = Modifier.testTag("chapter_filter_bookmarked")
+                                    )
+                                }
+                                VerticalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                                Column(modifier = Modifier.width(IntrinsicSize.Max)) {
+                                    MenuSectionLabel("Sort by")
+                                    // Tapping Number again flips its direction
+                                    ChapterSortOption(
+                                        label = "Number",
+                                        active = !byLastRead,
+                                        ascending = sortAscending,
+                                        onClick = { if (byLastRead) byLastRead = false else viewModel.toggleSortOrder() },
+                                        modifier = Modifier.testTag("chapter_sort_number")
+                                    )
+                                    ChapterSortOption(
+                                        label = "Last read",
+                                        active = byLastRead,
+                                        ascending = null,
+                                        onClick = { byLastRead = true },
+                                        modifier = Modifier.testTag("chapter_sort_last_read")
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     IconButton(
                         onClick = { viewModel.toggleFavorite(manga) },
                         modifier = Modifier.testTag("manga_favorite_button")
@@ -213,16 +283,6 @@ fun ChapterListScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text(if (sortAscending) "Sort Descending" else "Sort Ascending") },
-                                leadingIcon = {
-                                    Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null)
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    viewModel.toggleSortOrder()
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Re-scan Chapters") },
                                 leadingIcon = {
                                     Icon(Icons.Default.AutoStories, contentDescription = null)
@@ -236,26 +296,30 @@ fun ChapterListScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface
                 ),
+                scrollBehavior = scrollBehavior,
                 // Default insets follow reported status bar visibility, which can stay "hidden" after the reader
                 windowInsets = WindowInsets.stableStatusBars.union(TopAppBarDefaults.windowInsets)
             )
         },
-        modifier = modifier
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { innerPadding ->
+        // The backdrop runs up behind the top bar, so only the bottom inset pads the list
+        val topBarHeight = innerPadding.calculateTopPadding()
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(bottom = innerPadding.calculateBottomPadding())
                 .testTag("chapter_list_view")
         ) {
-            // Hero Header Section matching Figma design
+            // Hero: blurred cover backdrop with the cover, title and counts
             item {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(240.dp)
+                        .height(topBarHeight + 220.dp)
                 ) {
                     // Blurred background artwork
                     if (!manga.coverPath.isNullOrBlank()) {
@@ -269,16 +333,16 @@ fun ChapterListScreen(
                         )
                     }
 
-                    // Dark gradient scrim
+                    // Scrim that fades into the page background, so the backdrop has no visible bottom edge
+                    val pageBackground = MaterialTheme.colorScheme.background
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color(0xFF0E0E12).copy(alpha = 0.5f),
-                                        Color(0xFF0E0E12)
-                                    )
+                                    0f to pageBackground.copy(alpha = 0.25f),
+                                    0.55f to pageBackground.copy(alpha = 0.6f),
+                                    1f to pageBackground
                                 )
                             )
                     )
@@ -361,10 +425,11 @@ fun ChapterListScreen(
 
                             // Only facts from the files: chapter count, plus ComicInfo.xml fields when present
                             Text(
-                                text = if (chapters.size == 1) "1 Chapter" else "${chapters.size} Chapters",
+                                text = (if (chapters.size == 1) "1 chapter" else "${chapters.size} chapters") + " · $readCount read",
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                                fontWeight = FontWeight.SemiBold
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.testTag("chapter_counts")
                             )
 
                             val credits = info?.let { i ->
@@ -400,42 +465,12 @@ fun ChapterListScreen(
                 }
             }
 
-            // Info Card
+            // Summary, then the AniList and Continue buttons
             item {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    // Metadata card (Chapters, Progress)
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceAround
-                        ) {
-                            MetaCol(label = "Chapters", value = "${chapters.size}")
-                            MetaCol(label = "Read", value = "$readCount")
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { showTrackingSheet = true }
-                                    .testTag("tracking_button")
-                            ) {
-                                MetaCol(
-                                    label = "AniList",
-                                    value = track?.let { t -> t.status?.displayName ?: "Linked" } ?: "Track"
-                                )
-                            }
-                        }
-                    }
-
                     val summary = info?.summary
                     if (summary != null) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = summary,
                             style = MaterialTheme.typography.bodySmall,
@@ -460,72 +495,85 @@ fun ChapterListScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Big Primary Continue Reading Button
-                    Button(
-                        onClick = {
-                            if (nextChapter != null) {
-                                viewModel.selectChapter(nextChapter)
-                            }
-                        },
-                        enabled = nextChapter != null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("primary_read_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (manga.lastReadChapterTitle != null) "Continue: ${manga.lastReadChapterTitle}" else "Start Reading",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    // Chapters Section Header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Chapters",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { viewModel.toggleSortOrder() }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // AniList only for users who logged in; tracking is optional and stays out of the way otherwise
+                        if (aniListUser != null) {
+                            TrackButton(
+                                status = track?.let { t -> t.status?.displayName ?: "Linked" },
+                                progress = track?.let { t ->
+                                    if (t.totalChapters > 0) "${t.progress} / ${t.totalChapters} ch" else "${t.progress} ch"
+                                },
+                                onClick = { showTrackingSheet = true },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Button(
+                            onClick = { nextChapter?.let(viewModel::selectChapter) },
+                            enabled = nextChapter != null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                                .testTag("primary_read_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            shape = RoundedCornerShape(14.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (sortAscending) "Ascending >" else "Descending >",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
+                                text = if (manga.lastReadChapterTitle != null) "Continue" else "Start",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // The filters that are on, each removable with its ✕
+                    if (filtered) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.testTag("chapter_active_filters")
+                        ) {
+                            if (chapterFilter != ChapterFilter.ALL) {
+                                FilterChipWithClear(chapterFilter.displayName, { chapterFilter = ChapterFilter.ALL })
+                            }
+                            if (bookmarkedOnly) {
+                                FilterChipWithClear("Bookmarked", { bookmarkedOnly = false })
+                            }
+                        }
+                    }
+
+                    if (filtered && shownChapters.isEmpty()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp)
+                                .testTag("chapter_filter_empty")
+                        ) {
+                            Text(
+                                text = "No chapters match these filters",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(onClick = {
+                                chapterFilter = ChapterFilter.ALL
+                                bookmarkedOnly = false
+                            }) { Text("Clear filters") }
+                        }
+                    }
                 }
             }
 
-            // Chapters List
-            items(chapters, key = { it.id }) { chapter ->
+            items(shownChapters, key = { it.id }) { chapter ->
                 ChapterItemModern(
                     chapter = chapter,
                     manga = manga,
@@ -555,22 +603,65 @@ private fun GenreChip(label: String) {
     }
 }
 
+/** AniList status and progress for a linked series ([status] non-null), or "Track" to link it. */
 @Composable
-private fun MetaCol(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+private fun TrackButton(status: String?, progress: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+        modifier = modifier
+            .height(50.dp)
+            .testTag("tracking_button")
+    ) {
+        // Brand-blue "AL" mark; the app ships no AniList logo asset
+        Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFF1E2A3A), modifier = Modifier.size(24.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("AL", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFF3DB4F2))
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        if (status == null) {
+            Text("Track", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        } else {
+            Column {
+                Text(status, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (progress != null) {
+                    Text(progress, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun ChapterSortOption(
+    label: String,
+    active: Boolean,
+    ascending: Boolean?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                text = label,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        },
+        trailingIcon = if (active && ascending != null) {
+            {
+                Icon(
+                    imageVector = if (ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                    contentDescription = if (ascending) "Ascending" else "Descending",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        } else null,
+        onClick = onClick,
+        modifier = modifier
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class) // combinedClickable, for the long-press menu

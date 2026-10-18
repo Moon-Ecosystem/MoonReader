@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AccentPreset
 import com.example.data.ActivityChartMetric
 import com.example.data.Chapter
+import com.example.data.ChapterFilter
 import com.example.data.DayActivity
 import com.example.data.LibrarySort
 import com.example.data.LibraryStatus
@@ -83,6 +84,29 @@ internal fun sortLibrary(list: List<Manga>, sort: LibrarySort, ascending: Boolea
     }
     val directed = if (ascending) primary else primary.reversed()
     return list.sortedWith(directed.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+}
+
+/**
+ * The chapters a series page shows. Unread includes chapters started but not finished. With [byLastRead] the
+ * most recently read come first (never-read ones keep their order at the end). Only the list changes: the
+ * reader's next-chapter order stays [MangaViewModel.currentChapters].
+ */
+internal fun visibleChapters(
+    chapters: List<Chapter>,
+    filter: ChapterFilter,
+    bookmarkedOnly: Boolean,
+    byLastRead: Boolean
+): List<Chapter> {
+    val kept = chapters.filter { chapter ->
+        val matches = when (filter) {
+            ChapterFilter.ALL -> true
+            ChapterFilter.UNREAD -> !chapter.isRead
+            ChapterFilter.IN_PROGRESS -> !chapter.isRead && chapter.lastReadPage > 0
+            ChapterFilter.READ -> chapter.isRead
+        }
+        matches && (!bookmarkedOnly || chapter.isBookmarked)
+    }
+    return if (byLastRead) kept.sortedByDescending { it.lastReadTime } else kept
 }
 
 /** Id prefix for a file opened from another app rather than from the library. */
