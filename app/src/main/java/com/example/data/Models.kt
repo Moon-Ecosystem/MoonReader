@@ -48,6 +48,14 @@ enum class LibraryStatus(val displayName: String) {
     COMPLETED("Completed")
 }
 
+/** Which chapters a series page lists; combines with the bookmarked-only toggle. */
+enum class ChapterFilter(val displayName: String) {
+    ALL("All"),
+    UNREAD("Unread"),
+    IN_PROGRESS("In progress"),
+    READ("Read")
+}
+
 /**
  * 5 Accent color presets matching the project specifications.
  */
