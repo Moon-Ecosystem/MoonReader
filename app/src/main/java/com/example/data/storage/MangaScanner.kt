@@ -38,6 +38,9 @@ object MangaScanner {
 
     private fun isArchive(name: String): Boolean {
         val lower = name.trim().lowercase()
+        // Our own backups are ZIPs too; one saved inside the library folder isn't a comic.
+        // shortcut: matched by the default file name, so a renamed backup still shows; check for its manifest.json if that happens
+        if (lower.startsWith("moonreader-backup")) return false
         return lower.endsWith(".cbz") ||
                 lower.endsWith(".zip") ||
                 lower.endsWith(".cbr") ||
