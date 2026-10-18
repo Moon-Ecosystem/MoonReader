@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import com.example.ui.components.stableStatusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -43,7 +42,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.DropdownMenu
@@ -76,11 +74,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.border
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.material3.RadioButton
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +102,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -104,11 +115,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.LibrarySort
+import com.example.data.LibraryStatus
 import com.example.data.Manga
-import com.example.ui.LibraryFilter
+import com.example.data.db.CollectionEntity
+import com.example.data.preferences.PreferencesManager
 import com.example.ui.MangaViewModel
 import com.example.ui.NavTab
+import com.example.ui.components.CollectionNameDialog
+import com.example.ui.components.CollectionPickerDialog
+import com.example.ui.components.CollectionTabs
+import com.example.ui.components.DeleteCollectionDialog
+import androidx.compose.material.icons.filled.CollectionsBookmark
 import java.io.File
+
+/** newCollectionFor value when a collection is made from the "+" tab, with no series to add (ids are never empty). */
+private const val NEW_COLLECTION_ONLY = ""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,10 +138,68 @@ fun HomeScreen(
     onSelectFolderClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val mangaList by viewModel.filteredManga.collectAsStateWithLifecycle()
+    val homeLibrary by viewModel.homeLibrary.collectAsStateWithLifecycle()
     val totalLibraryManga by viewModel.libraryManga.collectAsStateWithLifecycle(emptyList())
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
-    val currentFilter by viewModel.libraryFilter.collectAsStateWithLifecycle()
+    val libraryStatus by viewModel.preferencesManager.libraryStatus.collectAsStateWithLifecycle()
+    val favoritesOnly by viewModel.preferencesManager.libraryFavoritesOnly.collectAsStateWithLifecycle()
+    val collections by viewModel.collections.collectAsStateWithLifecycle()
+    val collectionMembers by viewModel.collectionMembers.collectAsStateWithLifecycle()
+    val selectedCollection by viewModel.selectedCollection.collectAsStateWithLifecycle()
+
+    // Collection dialogs: the series whose collections are being edited, the series a new collection is
+    // created for (NEW_COLLECTION_ONLY from the "+" tab), and the collection being renamed or deleted
+    var pickingCollectionsFor by remember { mutableStateOf<Manga?>(null) }
+    var newCollectionFor by remember { mutableStateOf<String?>(null) }
+    var renamingCollection by remember { mutableStateOf<CollectionEntity?>(null) }
+    var deletingCollection by remember { mutableStateOf<CollectionEntity?>(null) }
+
+    pickingCollectionsFor?.let { manga ->
+        CollectionPickerDialog(
+            title = manga.title,
+            collections = collections,
+            memberOf = collectionMembers.filterValues { manga.id in it }.keys,
+            onToggle = { id, member -> viewModel.setInCollection(id, manga.id, member) },
+            onNewCollection = {
+                pickingCollectionsFor = null
+                newCollectionFor = manga.id
+            },
+            onDismiss = { pickingCollectionsFor = null }
+        )
+    }
+    newCollectionFor?.let { mangaId ->
+        CollectionNameDialog(
+            title = "New collection",
+            confirmLabel = "Create",
+            onConfirm = { name ->
+                viewModel.createCollection(name, mangaId.takeIf { it != NEW_COLLECTION_ONLY })
+                newCollectionFor = null
+            },
+            onDismiss = { newCollectionFor = null }
+        )
+    }
+    renamingCollection?.let { collection ->
+        CollectionNameDialog(
+            title = "Rename collection",
+            confirmLabel = "Rename",
+            initialName = collection.name,
+            onConfirm = { name ->
+                viewModel.renameCollection(collection.id, name)
+                renamingCollection = null
+            },
+            onDismiss = { renamingCollection = null }
+        )
+    }
+    deletingCollection?.let { collection ->
+        DeleteCollectionDialog(
+            name = collection.name,
+            onConfirm = {
+                viewModel.deleteCollection(collection.id)
+                deletingCollection = null
+            },
+            onDismiss = { deletingCollection = null }
+        )
+    }
     val continueManga by viewModel.continueReadingManga.collectAsStateWithLifecycle()
     val folderUri by viewModel.preferencesManager.folderUri.collectAsStateWithLifecycle()
     val librarySort by viewModel.preferencesManager.librarySort.collectAsStateWithLifecycle()
@@ -171,10 +250,14 @@ fun HomeScreen(
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        LibrarySortButton(
+                        LibraryViewButton(
+                            status = libraryStatus,
+                            favoritesOnly = favoritesOnly,
                             sort = librarySort,
                             ascending = librarySortAscending,
-                            onSelect = viewModel::onLibrarySortSelected
+                            onStatus = viewModel::setLibraryStatus,
+                            onFavoritesOnly = viewModel::setLibraryFavoritesOnly,
+                            onSort = viewModel::onLibrarySortSelected
                         )
                         IconButton(
                             onClick = { viewModel.selectTab(NavTab.SEARCH) },
@@ -286,6 +369,43 @@ fun HomeScreen(
                         }
                     }
                 } else {
+                    // One pager page per tab; swiping the grid sideways moves between collections
+                    val tabIds = remember(collections) {
+                        listOf(PreferencesManager.ALL_COLLECTIONS) + collections.map { it.id }
+                    }
+                    val pagerState = rememberPagerState(
+                        initialPage = tabIds.indexOf(selectedCollection).coerceAtLeast(0)
+                    ) { tabIds.size }
+                    // Tab tapped (or the remembered tab loaded): slide to it
+                    LaunchedEffect(selectedCollection, tabIds) {
+                        val index = tabIds.indexOf(selectedCollection)
+                        if (index >= 0 && index != pagerState.currentPage) pagerState.animateScrollToPage(index)
+                    }
+                    // Swiped: select the tab the pager settled on. Compared with the current selection, so the
+                    // pager's first page (All, before collections load) never overwrites the remembered tab
+                    LaunchedEffect(pagerState, tabIds) {
+                        snapshotFlow { pagerState.settledPage }.collect { page ->
+                            val id = tabIds.getOrNull(page) ?: return@collect
+                            if (id != viewModel.selectedCollection.value) viewModel.selectCollection(id)
+                        }
+                    }
+
+                    // Pinned above the grid so the tabs stay reachable while scrolling
+                    CollectionTabs(
+                        collections = collections,
+                        selected = selectedCollection,
+                        counts = homeLibrary.mapValues { it.value.size },
+                        onSelect = viewModel::selectCollection,
+                        onCreate = { newCollectionFor = NEW_COLLECTION_ONLY },
+                        onRename = { renamingCollection = it },
+                        onDelete = { deletingCollection = it }
+                    )
+                    ActiveFilterChips(
+                        status = libraryStatus,
+                        favoritesOnly = favoritesOnly,
+                        onClearStatus = { viewModel.setLibraryStatus(LibraryStatus.ALL) },
+                        onClearFavorites = { viewModel.setLibraryFavoritesOnly(false) }
+                    )
                     // Pull down from the top of the library to rescan the folder; the indicator also
                     // shows during the automatic launch scan
                     PullToRefreshBox(
@@ -293,6 +413,15 @@ fun HomeScreen(
                         onRefresh = { viewModel.scanLibrary() },
                         modifier = Modifier.fillMaxSize()
                     ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        key = { page -> tabIds.getOrElse(page) { page.toLong() } },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("collection_pager")
+                    ) { page ->
+                    val tabId = tabIds.getOrElse(page) { PreferencesManager.ALL_COLLECTIONS }
+                    val mangaList = homeLibrary[tabId].orEmpty()
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 108.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -302,77 +431,14 @@ fun HomeScreen(
                             .fillMaxSize()
                             .testTag("manga_grid")
                     ) {
-                        // 1. Library Section Header & Filter Pills (Shifted straight to top)
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Column(modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Library",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    val countText = if (currentFilter == LibraryFilter.ALL) {
-                                        "${totalLibraryManga.size} titles"
-                                    } else {
-                                        "${mangaList.size} of ${totalLibraryManga.size} titles"
-                                    }
-                                    Text(
-                                        text = countText,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Horizontal scrollable filter pills
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    item {
-                                        FilterPill(
-                                            selected = currentFilter == LibraryFilter.ALL,
-                                            label = "All",
-                                            onClick = { viewModel.setLibraryFilter(LibraryFilter.ALL) }
-                                        )
-                                    }
-                                    item {
-                                        FilterPill(
-                                            selected = currentFilter == LibraryFilter.IN_PROGRESS,
-                                            label = "Reading",
-                                            onClick = { viewModel.setLibraryFilter(LibraryFilter.IN_PROGRESS) }
-                                        )
-                                    }
-                                    item {
-                                        FilterPill(
-                                            selected = currentFilter == LibraryFilter.FAVORITES,
-                                            label = "Favorites",
-                                            onClick = { viewModel.setLibraryFilter(LibraryFilter.FAVORITES) }
-                                        )
-                                    }
-                                    item {
-                                        FilterPill(
-                                            selected = currentFilter == LibraryFilter.UNREAD,
-                                            label = "Unread",
-                                            onClick = { viewModel.setLibraryFilter(LibraryFilter.UNREAD) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // 2. Manga Grid Items or Filter Empty State
+                        // Manga grid, or why it's empty
                         if (mangaList.isEmpty()) {
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 EmptyFilterCard(
-                                    filter = currentFilter,
-                                    onResetFilter = { viewModel.setLibraryFilter(LibraryFilter.ALL) }
+                                    status = libraryStatus,
+                                    favoritesOnly = favoritesOnly,
+                                    inCollection = tabId != PreferencesManager.ALL_COLLECTIONS,
+                                    onResetFilter = viewModel::resetLibraryFilter
                                 )
                             }
                         } else {
@@ -381,10 +447,12 @@ fun HomeScreen(
                                     manga = manga,
                                     onClick = { viewModel.selectManga(manga) },
                                     onMarkRead = { viewModel.markMangaRead(manga, it) },
-                                    onToggleFavorite = { viewModel.toggleFavorite(manga) }
+                                    onToggleFavorite = { viewModel.toggleFavorite(manga) },
+                                    onEditCollections = { pickingCollectionsFor = manga }
                                 )
                             }
                         }
+                    }
                     }
                     }
                 }
@@ -414,89 +482,152 @@ fun HomeScreen(
     }
 }
 
-/** Sort menu for the library; the active option shows its direction and tapping it again flips it. */
+/**
+ * One menu for what the library shows: a status (one of) plus favorites only, then the sort order.
+ */
 @Composable
-private fun LibrarySortButton(
+private fun LibraryViewButton(
+    status: LibraryStatus,
+    favoritesOnly: Boolean,
     sort: LibrarySort,
     ascending: Boolean,
-    onSelect: (LibrarySort) -> Unit
+    onStatus: (LibraryStatus) -> Unit,
+    onFavoritesOnly: (Boolean) -> Unit,
+    onSort: (LibrarySort) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val filtered = status != LibraryStatus.ALL || favoritesOnly
     Box {
         IconButton(
             onClick = { expanded = true },
             modifier = Modifier
                 .size(36.dp)
-                .testTag("home_sort_button")
+                .testTag("home_filter_button")
         ) {
+            // Tinted while filtering; the chips under the tabs say which filters are on
             Icon(
-                imageVector = Icons.AutoMirrored.Filled.Sort,
-                contentDescription = "Sort library: ${sort.displayName}",
-                tint = MaterialTheme.colorScheme.onSurface,
+                imageVector = Icons.Default.FilterList,
+                contentDescription = if (filtered) "Filter and sort library (filter on)" else "Filter and sort library",
+                tint = if (filtered) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(22.dp)
             )
         }
+        // Stays open so several options can be set in one go; tap outside to close.
+        // Two columns side by side: what to show, and how to sort it
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            LibrarySort.entries.forEach { option ->
-                val active = option == sort
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = option.displayName,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                Column(modifier = Modifier.width(IntrinsicSize.Max)) {
+                    MenuSectionLabel("Show")
+                    LibraryStatus.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.displayName) },
+                            leadingIcon = { RadioButton(selected = option == status, onClick = null) },
+                            onClick = { onStatus(option) },
+                            modifier = Modifier.testTag("home_filter_${option.name}")
                         )
-                    },
-                    trailingIcon = if (active) {
-                        {
-                            Icon(
-                                imageVector = if (ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                                contentDescription = if (ascending) "Ascending" else "Descending",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    } else null,
-                    onClick = {
-                        onSelect(option)
-                        // Keep the menu open on the active option so its direction can be flipped and seen
-                        if (!active) expanded = false
-                    },
-                    modifier = Modifier.testTag("home_sort_${option.name}")
-                )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Favorites only") },
+                        leadingIcon = { Checkbox(checked = favoritesOnly, onCheckedChange = null) },
+                        onClick = { onFavoritesOnly(!favoritesOnly) },
+                        modifier = Modifier.testTag("home_filter_favorites")
+                    )
+                }
+                VerticalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Column(modifier = Modifier.width(IntrinsicSize.Max)) {
+                    MenuSectionLabel("Sort by")
+                    LibrarySortOptions(sort, ascending, onSort)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun FilterPill(
-    selected: Boolean,
-    label: String,
-    onClick: () -> Unit
+private fun LibrarySortOptions(sort: LibrarySort, ascending: Boolean, onSort: (LibrarySort) -> Unit) {
+    LibrarySort.entries.forEach { option ->
+        val active = option == sort
+        DropdownMenuItem(
+            text = {
+                Text(
+                    text = option.displayName,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+            },
+            // Tapping the active option again flips its direction
+            trailingIcon = if (active) {
+                {
+                    Icon(
+                        imageVector = if (ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                        contentDescription = if (ascending) "Ascending" else "Descending",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else null,
+            onClick = { onSort(option) },
+            modifier = Modifier.testTag("home_sort_${option.name}")
+        )
+    }
+}
+
+/** The filters that are on, each removable with its ✕; nothing at all while the whole library shows. */
+@Composable
+private fun ActiveFilterChips(
+    status: LibraryStatus,
+    favoritesOnly: Boolean,
+    onClearStatus: () -> Unit,
+    onClearFavorites: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.height(34.dp)
+    if (status == LibraryStatus.ALL && !favoritesOnly) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .testTag("active_filters")
     ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = label,
-                fontSize = 13.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-            )
+        if (status != LibraryStatus.ALL) {
+            FilterChipWithClear(status.displayName, onClearStatus, Modifier.testTag("active_filter_status"))
+        }
+        if (favoritesOnly) {
+            FilterChipWithClear("Favorites", onClearFavorites, Modifier.testTag("active_filter_favorites"))
         }
     }
 }
 
 @Composable
+private fun FilterChipWithClear(label: String, onClear: () -> Unit, modifier: Modifier = Modifier) {
+    InputChip(
+        selected = true,
+        onClick = onClear,
+        label = { Text(label) },
+        trailingIcon = {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Remove $label filter",
+                modifier = Modifier.size(InputChipDefaults.IconSize)
+            )
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun MenuSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
 private fun EmptyFilterCard(
-    filter: LibraryFilter,
+    status: LibraryStatus,
+    favoritesOnly: Boolean,
+    inCollection: Boolean,
     onResetFilter: () -> Unit
 ) {
     Card(
@@ -514,23 +645,38 @@ private fun EmptyFilterCard(
                 .fillMaxWidth()
                 .padding(24.dp)
         ) {
-            val (icon, title, desc) = when (filter) {
-                LibraryFilter.FAVORITES -> Triple(
+            val (icon, title, desc) = when {
+                inCollection && !favoritesOnly && status == LibraryStatus.ALL -> Triple(
+                    Icons.Default.CollectionsBookmark,
+                    "Empty Collection",
+                    "Long-press a series in All and choose Collections… to add it here."
+                )
+                favoritesOnly && status == LibraryStatus.ALL -> Triple(
                     Icons.Default.FavoriteBorder,
                     "No Favorites Yet",
                     "Tap the heart icon on any manga details page to add it to your favorites."
                 )
-                LibraryFilter.UNREAD -> Triple(
+                favoritesOnly -> Triple(
+                    Icons.Default.FavoriteBorder,
+                    "No Matching Favorites",
+                    "None of your favorites match the \"${status.displayName}\" filter."
+                )
+                status == LibraryStatus.NOT_STARTED -> Triple(
                     Icons.Default.CheckCircleOutline,
                     "All Caught Up!",
                     "You have started reading all the manga in your library."
                 )
-                LibraryFilter.IN_PROGRESS -> Triple(
+                status == LibraryStatus.READING -> Triple(
                     Icons.Default.AutoStories,
                     "No Manga In Progress",
                     "Open any title and start reading to track your progress here."
                 )
-                LibraryFilter.ALL -> Triple(
+                status == LibraryStatus.COMPLETED -> Triple(
+                    Icons.Default.CheckCircleOutline,
+                    "Nothing Finished Yet",
+                    "Series you finish reading show up here."
+                )
+                else -> Triple(
                     Icons.Default.SearchOff,
                     "No Manga Found",
                     "No manga matched your library filter criteria."
@@ -572,7 +718,7 @@ private fun EmptyFilterCard(
                 textAlign = TextAlign.Center
             )
 
-            if (filter != LibraryFilter.ALL) {
+            if (status != LibraryStatus.ALL || favoritesOnly) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedButton(
@@ -592,7 +738,8 @@ private fun ModernMangaCard(
     manga: Manga,
     onClick: () -> Unit,
     onMarkRead: (Boolean) -> Unit,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onEditCollections: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -608,118 +755,140 @@ private fun ModernMangaCard(
         label = "card_press_scale"
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .scale(scale)
-            .clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-                onLongClick = { showMenu = true }
-            )
-            .testTag("manga_card_${manga.id}")
-    ) {
-        // Cover Box with 3:4 Aspect Ratio
-        Box(
+    // The menu opens after 250 ms instead of the system's 400 ms; only the cards use the shorter delay
+    val baseViewConfiguration = LocalViewConfiguration.current
+    val fastLongPress = remember(baseViewConfiguration) {
+        object : ViewConfiguration by baseViewConfiguration {
+            override val longPressTimeoutMillis: Long = 250L
+        }
+    }
+
+    // The menu anchors to this unscaled box: inside the scaled card it moved with the press animation,
+    // and directly in the grid cell it had no anchor and was pinned to the grid's edge
+    CompositionLocalProvider(LocalViewConfiguration provides fastLongPress) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.72f)
+                .scale(scale)
                 .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-        ) {
-            if (!manga.coverPath.isNullOrBlank()) {
-                AsyncImage(
-                    model = File(manga.coverPath),
-                    contentDescription = "Cover for ${manga.title}",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick,
+                    onLongClick = { showMenu = true }
                 )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoStories,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-            }
-
-            // Top gradient overlay for contrast
+                .testTag("manga_card_${manga.id}")
+        ) {
+            // Cover Box with 3:4 Aspect Ratio; outlined in the accent color while its menu is open
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(32.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent)
-                        )
+                    .aspectRatio(0.72f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                    .then(
+                        if (showMenu) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                        else Modifier
                     )
-            )
-
-            // Favorite indicator tag if bookmarked
-            if (manga.isFavorite) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFFDC2626).copy(alpha = 0.9f),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .size(20.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "♥",
-                            fontSize = 11.sp,
-                            color = Color.White
+            ) {
+                if (!manga.coverPath.isNullOrBlank()) {
+                    AsyncImage(
+                        model = File(manga.coverPath),
+                        contentDescription = "Cover for ${manga.title}",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoStories,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                            modifier = Modifier.size(32.dp)
                         )
                     }
                 }
+
+                // Top gradient overlay for contrast
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent)
+                            )
+                        )
+                )
+
+                // Favorite indicator tag if bookmarked
+                if (manga.isFavorite) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFDC2626).copy(alpha = 0.9f),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .size(20.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "♥",
+                                fontSize = 11.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Manga Title
+            Text(
+                text = manga.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            // Chapter Count Badge
+            Text(
+                text = if (manga.chapterCount > 0) "Ch. ${manga.chapterCount}" else "Chapters",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp
+            )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Manga Title
-        Text(
-            text = manga.title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-
-        // Chapter Count Badge
-        Text(
-            text = if (manga.chapterCount > 0) "Ch. ${manga.chapterCount}" else "Chapters",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp
-        )
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(
+                text = { Text("Mark as read") },
+                onClick = { showMenu = false; onMarkRead(true) },
+                modifier = Modifier.testTag("option_mark_read")
+            )
+            DropdownMenuItem(
+                text = { Text("Mark as unread") },
+                onClick = { showMenu = false; onMarkRead(false) },
+                modifier = Modifier.testTag("option_mark_unread")
+            )
+            DropdownMenuItem(
+                text = { Text(if (manga.isFavorite) "Remove from favorites" else "Add to favorites") },
+                onClick = { showMenu = false; onToggleFavorite() },
+                modifier = Modifier.testTag("option_toggle_favorite")
+            )
+            DropdownMenuItem(
+                text = { Text("Collections…") },
+                onClick = { showMenu = false; onEditCollections() },
+                modifier = Modifier.testTag("option_collections")
+            )
+        }
     }
-
-    // Anchored to the grid cell, not the card, so the press-scale animation doesn't shift it
-    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-        DropdownMenuItem(
-            text = { Text("Mark as read") },
-            onClick = { showMenu = false; onMarkRead(true) },
-            modifier = Modifier.testTag("option_mark_read")
-        )
-        DropdownMenuItem(
-            text = { Text("Mark as unread") },
-            onClick = { showMenu = false; onMarkRead(false) },
-            modifier = Modifier.testTag("option_mark_unread")
-        )
-        DropdownMenuItem(
-            text = { Text(if (manga.isFavorite) "Remove from favorites" else "Add to favorites") },
-            onClick = { showMenu = false; onToggleFavorite() },
-            modifier = Modifier.testTag("option_toggle_favorite")
-        )
     }
 }

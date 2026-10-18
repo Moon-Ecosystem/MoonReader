@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.example.ui.MangaApp
 import com.example.ui.MangaViewModel
+import com.example.widget.ContinueReadingWidget
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MangaViewModel by viewModels()
@@ -30,8 +31,18 @@ class MainActivity : ComponentActivity() {
         openViewIntent(intent)
     }
 
-    /** "Open with Moon Reader": reads the CBZ another app handed over; or finishes the AniList login. */
+    // Progress only changes while the app is open, so this is the one place the widget needs refreshing
+    override fun onStop() {
+        super.onStop()
+        ContinueReadingWidget.refresh(this)
+    }
+
+    /** "Open with Moon Reader": reads the CBZ another app handed over; finishes the AniList login; or resumes a series picked on the widget. */
     private fun openViewIntent(intent: Intent?) {
+        if (intent?.action == ContinueReadingWidget.ACTION_RESUME) {
+            intent.getStringExtra(ContinueReadingWidget.EXTRA_MANGA_ID)?.let(viewModel::resumeReading)
+            return
+        }
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
         if (uri.scheme == "moonreader" && uri.host == "anilist-auth") {

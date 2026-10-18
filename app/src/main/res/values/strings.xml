@@ -24,4 +24,8 @@
     <string name="accent_color">Accent Color</string>
     <string name="clear_cache">Clear Chapter Cache</string>
     <string name="cache_cleared">Cache cleared successfully</string>
+    <string name="widget_name">Continue Reading</string>
+    <string name="widget_description">The series you\'re reading; tap one to pick up where you left off</string>
+    <string name="widget_empty">Nothing in progress</string>
+    <string name="widget_locked">Moon Reader</string>
 </resources>

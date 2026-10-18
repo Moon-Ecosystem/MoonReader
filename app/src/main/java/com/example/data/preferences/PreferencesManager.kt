@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.data.AccentPreset
 import com.example.data.LibrarySort
+import com.example.data.LibraryStatus
 import com.example.data.ReaderFitMode
 import com.example.data.ReaderTheme
 import com.example.data.ReadingDirection
@@ -89,6 +90,23 @@ class PreferencesManager(context: Context) {
     )
     val librarySortAscending: StateFlow<Boolean> = _librarySortAscending.asStateFlow()
 
+    private val _libraryStatus = MutableStateFlow(
+        LibraryStatus.entries.find { it.name == prefs.getString(KEY_LIBRARY_STATUS, null) } ?: LibraryStatus.ALL
+    )
+    val libraryStatus: StateFlow<LibraryStatus> = _libraryStatus.asStateFlow()
+
+    private val _libraryFavoritesOnly = MutableStateFlow(prefs.getBoolean(KEY_LIBRARY_FAVORITES_ONLY, false))
+    val libraryFavoritesOnly: StateFlow<Boolean> = _libraryFavoritesOnly.asStateFlow()
+
+    // Home screen tab: a collection id, or ALL_COLLECTIONS
+    private val _libraryCollection = MutableStateFlow(prefs.getLong(KEY_LIBRARY_COLLECTION, ALL_COLLECTIONS))
+    val libraryCollection: StateFlow<Long> = _libraryCollection.asStateFlow()
+
+    fun setLibraryCollection(id: Long) {
+        prefs.edit().putLong(KEY_LIBRARY_COLLECTION, id).apply()
+        _libraryCollection.value = id
+    }
+
     private val _volumeKeysNavigation = MutableStateFlow(prefs.getBoolean(KEY_VOLUME_KEYS, true))
     val volumeKeysNavigation: StateFlow<Boolean> = _volumeKeysNavigation.asStateFlow()
 
@@ -131,6 +149,15 @@ class PreferencesManager(context: Context) {
             .apply()
         _librarySort.value = sort
         _librarySortAscending.value = ascending
+    }
+
+    fun setLibraryFilter(status: LibraryStatus, favoritesOnly: Boolean) {
+        prefs.edit()
+            .putString(KEY_LIBRARY_STATUS, status.name)
+            .putBoolean(KEY_LIBRARY_FAVORITES_ONLY, favoritesOnly)
+            .apply()
+        _libraryStatus.value = status
+        _libraryFavoritesOnly.value = favoritesOnly
     }
 
     fun setVolumeKeysNavigation(enabled: Boolean) {
@@ -223,6 +250,12 @@ class PreferencesManager(context: Context) {
         private const val KEY_READER_FIT = "pref_reader_fit_mode"
         private const val KEY_LIBRARY_SORT = "pref_library_sort"
         private const val KEY_LIBRARY_SORT_ASCENDING = "pref_library_sort_ascending"
+        private const val KEY_LIBRARY_STATUS = "pref_library_status"
+        private const val KEY_LIBRARY_FAVORITES_ONLY = "pref_library_favorites_only"
+        private const val KEY_LIBRARY_COLLECTION = "pref_library_collection"
+
+        /** The "All" tab; collection ids start at 1. */
+        const val ALL_COLLECTIONS = 0L
         private const val KEY_VOLUME_KEYS = "pref_volume_keys"
         private const val KEY_KEEP_SCREEN_ON = "pref_keep_screen_on"
         private const val KEY_APP_LOCK_ENABLED = "pref_app_lock_enabled"

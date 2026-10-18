@@ -59,7 +59,7 @@ gradle :app:processDebugResources :app:compileDebugKotlin  # compile check
 
 ## Conventions and gotchas
 
-- **Room schema:** `AppDatabase` is at version 3 with explicit migrations (`MIGRATION_1_2`, `MIGRATION_2_3`).
+- **Room schema:** `AppDatabase` is at version 4 with explicit migrations (`MIGRATION_1_2`, `MIGRATION_2_3`, `MIGRATION_3_4`).
   - If you change an entity, bump the version and add a migration.
   - `fallbackToDestructiveMigration()` is there only as a safety net. Relying on it wipes the user's library and stats.
 - **Storage:** library access goes through the Storage Access Framework (persisted tree URIs) only, with no broad storage permissions. Pages are streamed out of the archive and never unzipped to disk.

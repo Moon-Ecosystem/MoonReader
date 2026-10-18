@@ -1,7 +1,9 @@
 package com.example
 
 import com.example.data.LibrarySort
+import com.example.data.LibraryStatus
 import com.example.data.Manga
+import com.example.ui.filterLibrary
 import com.example.ui.sortLibrary
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -35,5 +37,25 @@ class LibrarySortTest {
     assertEquals(listOf("uzumaki", "Tomie", "Gyo", "Remina"), titles(LibrarySort.TOTAL_CHAPTERS, ascending = false))
     // unread: Tomie 5, Gyo 1, Remina 1 (tie -> title), uzumaki 0
     assertEquals(listOf("Tomie", "Gyo", "Remina", "uzumaki"), titles(LibrarySort.UNREAD, ascending = false))
+  }
+
+  @Test
+  fun `status filters combine with favorites only`() {
+    val lib = listOf(
+      manga("uzumaki", lastRead = 100, chapters = 20, read = 20), // completed
+      manga("Gyo", lastRead = 300, chapters = 2, read = 1).copy(isFavorite = true), // reading
+      manga("Tomie", chapters = 5).copy(isFavorite = true), // not started
+      manga("Remina", chapters = 3, read = 1), // marked read from the library, never opened: started
+    )
+    fun filtered(status: LibraryStatus, favoritesOnly: Boolean = false) =
+      filterLibrary(lib, status, favoritesOnly).map { it.title }
+
+    assertEquals(listOf("uzumaki", "Gyo", "Tomie", "Remina"), filtered(LibraryStatus.ALL))
+    assertEquals(listOf("Gyo", "Remina"), filtered(LibraryStatus.READING))
+    assertEquals(listOf("Tomie"), filtered(LibraryStatus.NOT_STARTED))
+    assertEquals(listOf("uzumaki"), filtered(LibraryStatus.COMPLETED))
+    assertEquals(listOf("Gyo", "Tomie"), filtered(LibraryStatus.ALL, favoritesOnly = true))
+    assertEquals(listOf("Gyo"), filtered(LibraryStatus.READING, favoritesOnly = true))
+    assertEquals(emptyList<String>(), filtered(LibraryStatus.COMPLETED, favoritesOnly = true))
   }
 }

@@ -30,7 +30,7 @@ class ExampleRobolectricTest {
   @Test
   fun `library folder uri is shown as a readable path`() {
     val tree = "content://com.android.externalstorage.documents/tree/"
-    assertEquals("Internal storage/Mihon/local", readableFolderPath(tree + "primary%3AMihon%2Flocal"))
+    assertEquals("Internal storage/Manga/local", readableFolderPath(tree + "primary%3AManga%2Flocal"))
     assertEquals("Internal storage", readableFolderPath(tree + "primary%3A"))
     assertEquals("1A2B-3C4D/Comics", readableFolderPath(tree + "1A2B-3C4D%3AComics"))
     assertEquals("/data/user/0/sample_manga", readableFolderPath("/data/user/0/sample_manga"))
@@ -212,6 +212,80 @@ class ExampleRobolectricTest {
     assertEquals(0, entry().readChapterCount)
     assertEquals("no longer counts as being read", 0L, entry().lastReadTime)
     assertEquals(null, entry().lastReadChapterId)
+  }
+
+  @Test
+  fun `migration 3 to 4 adds collections without touching existing data`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val name = "migration_3_4_test.db"
+    context.deleteDatabase(name)
+    fun open() = androidx.room.Room.databaseBuilder(context, com.example.data.db.AppDatabase::class.java, name)
+      .addMigrations(
+        com.example.data.db.AppDatabase.MIGRATION_1_2,
+        com.example.data.db.AppDatabase.MIGRATION_2_3,
+        com.example.data.db.AppDatabase.MIGRATION_3_4
+      )
+      .allowMainThreadQueries()
+      .build() // no destructive fallback: a schema mismatch must fail here, not wipe data
+
+    // A version 3 database: today's schema minus the collection tables, with a library row in it
+    open().apply {
+      mangaDao().insertOrUpdateManga(com.example.data.db.MangaEntity(id = "m1", title = "Kept", folderUriString = "m1"))
+      openHelper.writableDatabase.apply {
+        execSQL("DROP TABLE collection_manga")
+        execSQL("DROP TABLE collections")
+        execSQL("PRAGMA user_version = 3")
+      }
+      close()
+    }
+
+    // Reopening runs MIGRATION_3_4, and Room validates the tables it creates
+    val db = open()
+    assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
+    val dao = db.collectionDao()
+    val horror = dao.create("Horror")
+    val seinen = dao.create("Seinen")
+    assertEquals(listOf("Horror" to 0, "Seinen" to 1), dao.observeCollections().first().map { it.name to it.position })
+
+    dao.addMember(com.example.data.db.CollectionMangaEntity(horror, "m1"))
+    dao.addMember(com.example.data.db.CollectionMangaEntity(horror, "m1")) // adding twice is ignored
+    dao.addMember(com.example.data.db.CollectionMangaEntity(seinen, "m1"))
+    assertEquals(2, dao.observeMembers().first().size)
+
+    // Deleting a collection drops its memberships only; the series stays
+    dao.delete(horror)
+    assertEquals(listOf(seinen), dao.observeMembers().first().map { it.collectionId })
+    assertEquals(listOf("Seinen"), dao.observeCollections().first().map { it.name })
+    assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
+    db.close()
+  }
+
+  @Test
+  fun `widget lists started unfinished series, most recent first`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    fun manga(id: String, lastRead: Long, chapters: Int = 2) = com.example.data.db.MangaEntity(
+      id = id, title = id, folderUriString = id, totalChapters = chapters,
+      lastReadChapterId = if (lastRead > 0) "$id-c1" else null, lastReadTime = lastRead
+    )
+    // Times far in the future so other tests' rows in the shared database sort after these
+    val base = 4_000_000_000_000L
+    dao.insertOrUpdateMangaList(
+      listOf(manga("w_old", base + 1), manga("w_new", base + 3), manga("w_done", base + 2, chapters = 1), manga("w_never", 0))
+    )
+    dao.saveChapterProgress(com.example.data.db.ChapterProgressEntity(chapterId = "w_done-c1", mangaId = "w_done", chapterTitle = "", isRead = true))
+
+    val ids = dao.getInProgressManga(10).map { it.id }
+    assertEquals(listOf("w_new", "w_old"), ids.filter { it.startsWith("w_") })
+    val slots = com.example.widget.ContinueReadingWidget::slotCount
+    // Default 4x2 widget: covers about 80 dp wide
+    assertEquals(1, slots(70, 150))
+    assertEquals(3, slots(250, 150))
+    assertEquals(4, slots(600, 150))
+    // Resized tall (the reported bug): one big cover instead of four thin strips
+    assertEquals(1, slots(300, 430))
+    // Wide and tall: as many full-size covers as fit
+    assertEquals(2, slots(600, 430))
   }
 
   @Test

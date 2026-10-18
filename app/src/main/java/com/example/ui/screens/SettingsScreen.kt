@@ -685,7 +685,7 @@ private fun SettingsHeader(title: String) {
     )
 }
 
-/** Turns a SAF tree URI like `…/tree/primary%3AMihon%2Flocal` into `Internal storage/Mihon/local`. */
+/** Turns a SAF tree URI like `…/tree/primary%3AManga%2Flocal` into `Internal storage/Manga/local`. */
 internal fun readableFolderPath(uriString: String): String {
     val uri = Uri.parse(uriString)
     val docId = uri.pathSegments.takeIf { uri.scheme == "content" && it.firstOrNull() == "tree" }

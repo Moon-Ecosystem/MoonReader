@@ -57,6 +57,25 @@ data class ReadingSessionEntity(
     val completedChapter: Boolean
 )
 
+/** A user-made library collection; [position] is its place in the home screen tabs. */
+@Entity(tableName = "collections")
+data class CollectionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val position: Int
+)
+
+/** A series in a collection; a series can be in any number of collections. */
+@Entity(
+    tableName = "collection_manga",
+    primaryKeys = ["collectionId", "mangaId"],
+    indices = [Index("mangaId")]
+)
+data class CollectionMangaEntity(
+    val collectionId: Long,
+    val mangaId: String
+)
+
 /**
  * A local series linked to its AniList entry, mirroring the remote list entry.
  * [pendingSync] marks progress read offline that still has to reach AniList.
