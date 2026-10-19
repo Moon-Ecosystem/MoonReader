@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+# Local tooling and design files, not part of the app
+.codegraph/
+/assets/
