@@ -8,6 +8,7 @@ import com.example.data.backup.BackupRepository
 import com.example.data.backup.remapLibraryId
 import com.example.data.db.AppDatabase
 import com.example.data.db.BackupData
+import com.example.data.db.ChapterOverrideEntity
 import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.CollectionEntity
 import com.example.data.db.CollectionMangaEntity
@@ -16,6 +17,8 @@ import com.example.data.db.MangaTrackEntity
 import com.example.data.db.ReadingSessionEntity
 import com.example.data.preferences.PreferencesManager
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +30,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -66,7 +71,8 @@ class BackupTest {
         readingSessions = listOf(ReadingSessionEntity(0, series, chapter, "Ch1", 1000L, 61_000L, 60_000L, 0, 7, 7, false)),
         collections = listOf(CollectionEntity(1, "Seinen", 0)),
         collectionManga = listOf(CollectionMangaEntity(1, series)),
-        tracks = listOf(MangaTrackEntity(series, remoteId = 30002, title = "Berserk", progress = 1, pendingSync = true))
+        tracks = listOf(MangaTrackEntity(series, remoteId = 30002, title = "Berserk", progress = 1, pendingSync = true)),
+        chapterOverrides = listOf(ChapterOverrideEntity(chapter, series, "Chapter One", isHidden = true))
       )
     )
     prefs.edit().putString("pref_reading_direction", "LTR").putString("pref_pin_hash", "old-pin").putFloat("f", 1.5f).commit()
@@ -92,12 +98,44 @@ class BackupTest {
     assertEquals(newChapter, dao.allSessions().single().chapterId)
     assertEquals(newSeries, dao.allCollectionManga().single().mangaId)
     assertEquals("Seinen", dao.allCollections().single().name)
+    val override = dao.allChapterOverrides().single()
+    assertEquals(newChapter, override.chapterId)
+    assertEquals(newSeries, override.mangaId)
+    assertEquals("Chapter One", override.customTitle)
+    assertTrue(override.isHidden)
     val track = dao.allTracks().single()
     assertEquals(newSeries, track.mangaId)
     assertFalse(track.pendingSync)
     assertEquals("LTR", prefs.getString("pref_reading_direction", null))
     assertEquals(1.5f, prefs.getFloat("f", 0f))
     assertEquals("new-pin", prefs.getString("pref_pin_hash", null)) // the PIN never comes from a backup
+  }
+
+  @Test
+  fun `a backup made before chapter changes existed still restores`() = runBlocking {
+    // Version 1 backups have no "chapterOverrides" array at all
+    val backup = ByteArrayOutputStream().also { out ->
+      ZipOutputStream(out).use { zip ->
+        fun write(name: String, text: String) {
+          zip.putNextEntry(ZipEntry(name))
+          zip.write(text.toByteArray())
+          zip.closeEntry()
+        }
+        write("manifest.json", JSONObject().put("format", "moonreader-backup").put("version", 1).put("libraryRoot", oldRoot).toString())
+        write("library.json", JSONObject()
+          .put("manga", JSONArray())
+          .put("chapterProgress", JSONArray())
+          .put("readingSessions", JSONArray())
+          .put("collections", JSONArray())
+          .put("collectionManga", JSONArray())
+          .put("tracks", JSONArray())
+          .toString())
+      }
+    }.toByteArray()
+
+    backups.restore(backup.inputStream(), newRoot)
+
+    assertEquals(emptyList<ChapterOverrideEntity>(), dao.allChapterOverrides())
   }
 
   @Test

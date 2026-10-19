@@ -109,6 +109,18 @@ internal fun visibleChapters(
     return if (byLastRead) kept.sortedByDescending { it.lastReadTime } else kept
 }
 
+/** Chapter order used by the series page and the reader: number first, then title; [ascending] flips both. */
+internal fun sortChaptersByNumber(chapters: List<Chapter>, ascending: Boolean): List<Chapter> =
+    chapters.sortedWith { a, b ->
+        val byNumber = if (ascending) {
+            a.chapterNumber.compareTo(b.chapterNumber)
+        } else {
+            b.chapterNumber.compareTo(a.chapterNumber)
+        }
+        if (byNumber != 0) byNumber
+        else if (ascending) a.title.compareTo(b.title) else b.title.compareTo(a.title)
+    }
+
 /** Id prefix for a file opened from another app rather than from the library. */
 private const val EXTERNAL_PREFIX = "external:"
 
@@ -310,17 +322,19 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (manga == null) flowOf(emptyList())
         else repository.getChaptersForManga(manga.id)
     }.combine(_sortChaptersAscending) { chapters, asc ->
-        if (asc) {
-            chapters.sortedWith { a, b ->
-                val diff = a.chapterNumber.compareTo(b.chapterNumber)
-                if (diff != 0) diff else a.title.compareTo(b.title)
-            }
-        } else {
-            chapters.sortedWith { a, b ->
-                val diff = b.chapterNumber.compareTo(a.chapterNumber)
-                if (diff != 0) diff else b.title.compareTo(a.title)
-            }
-        }
+        sortChaptersByNumber(chapters, asc)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    /** Chapters taken out of the series; the list offers them back for restoring. */
+    val removedChapters: StateFlow<List<Chapter>> = _selectedManga.flatMapLatest { manga ->
+        if (manga == null) flowOf(emptyList())
+        else repository.getRemovedChaptersForManga(manga.id)
+    }.combine(_sortChaptersAscending) { chapters, asc ->
+        sortChaptersByNumber(chapters, asc)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -752,6 +766,27 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
             val mangaId = _selectedManga.value?.id ?: chapter.mangaId
             repository.toggleChapterBookmark(chapter.id, mangaId)
         }
+    }
+
+    /** Renames a chapter in the list; the archive keeps its own name on disk. A blank title restores it. */
+    fun renameChapter(chapter: Chapter, newTitle: String) {
+        viewModelScope.launch {
+            val mangaId = _selectedManga.value?.id ?: chapter.mangaId
+            repository.renameChapter(chapter.id, mangaId, newTitle)
+        }
+    }
+
+    /** Removes a chapter from its series and forgets its progress. The archive file itself is not deleted. */
+    fun deleteChapter(chapter: Chapter) {
+        viewModelScope.launch {
+            val mangaId = _selectedManga.value?.id ?: chapter.mangaId
+            repository.deleteChapter(chapter.id, mangaId)
+        }
+    }
+
+    /** Puts a removed chapter back in the series; it comes back unread. */
+    fun restoreChapter(chapter: Chapter) {
+        viewModelScope.launch { repository.restoreChapter(chapter.id) }
     }
 
     fun markChapterRead(chapter: Chapter, isRead: Boolean) {

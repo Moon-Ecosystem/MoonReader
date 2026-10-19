@@ -5,6 +5,7 @@ import com.example.data.CbzPage
 import com.example.data.Chapter
 import com.example.data.Manga
 import com.example.data.PageRef
+import com.example.data.db.ChapterOverrideEntity
 import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.MangaDao
 import com.example.data.db.MangaEntity
@@ -44,10 +45,22 @@ class MangaRepository(
     // Combined library flow: merges scanned filesystem structure with Room database progress & favorites
     val libraryManga: Flow<List<Manga>> = combine(
         _scannedManga,
+        _scannedChapters,
         mangaDao.getAllManga(),
-        mangaDao.getAllChapterProgress()
-    ) { scannedList, dbEntities, progress ->
-        val readCounts = progress.filter { it.isRead }.groupingBy { it.mangaId }.eachCount()
+        mangaDao.getAllChapterProgress(),
+        mangaDao.getAllChapterOverrides()
+    ) { scannedList, chaptersById, dbEntities, progress, overrides ->
+        val hiddenChapterIds = overrides.filter { it.isHidden }.map { it.chapterId }.toSet()
+        val hiddenByManga = overrides.filter { it.isHidden }.groupBy({ it.mangaId }, { it.chapterId })
+        val readCounts = progress.filter { it.isRead && it.chapterId !in hiddenChapterIds }
+            .groupingBy { it.mangaId }.eachCount()
+        // Chapter changes are counted against the chapters the scan actually found, so an override left
+        // over from a file that is no longer on disk can't make the count go negative
+        fun visibleChapterCount(mangaId: String, scanned: Int): Int {
+            val foundIds = chaptersById[mangaId]?.map { it.id }?.toSet()
+            val hidden = hiddenByManga[mangaId].orEmpty().count { foundIds == null || it in foundIds }
+            return (scanned - hidden).coerceAtLeast(0)
+        }
         // Show the library saved by the last scan immediately instead of an empty home screen
         // while the launch-time rescan runs; the scan result replaces it when ready.
         if (scannedList == null) {
@@ -56,7 +69,7 @@ class MangaRepository(
                     id = e.id,
                     title = e.title,
                     folderUriString = e.folderUriString,
-                    chapterCount = e.totalChapters,
+                    chapterCount = visibleChapterCount(e.id, e.totalChapters),
                     coverPath = e.coverPath,
                     isFavorite = e.isFavorite,
                     lastReadChapterId = e.lastReadChapterId,
@@ -71,8 +84,10 @@ class MangaRepository(
 
         scannedList.map { manga ->
             val entity = entityMap[manga.id]
+            val chapterCount = visibleChapterCount(manga.id, manga.chapterCount)
             if (entity != null) {
                 manga.copy(
+                    chapterCount = chapterCount,
                     isFavorite = entity.isFavorite,
                     lastReadChapterId = entity.lastReadChapterId,
                     lastReadChapterTitle = entity.lastReadChapterTitle,
@@ -83,36 +98,33 @@ class MangaRepository(
                     readChapterCount = readCounts[manga.id] ?: 0
                 )
             } else {
-                manga.copy(readChapterCount = readCounts[manga.id] ?: 0)
+                manga.copy(chapterCount = chapterCount, readChapterCount = readCounts[manga.id] ?: 0)
             }
         }
     }
 
     /**
-     * Get chapters for a specific manga, merged with their read progress from Room.
+     * Get chapters for a specific manga, merged with their read progress, renames and deletes from Room.
      */
     fun getChaptersForManga(mangaId: String): Flow<List<Chapter>> {
         return combine(
             _scannedChapters,
-            mangaDao.getProgressForManga(mangaId)
-        ) { chaptersMap, progressList ->
-            val chapters = chaptersMap[mangaId] ?: emptyList()
-            val progressMap = progressList.associateBy { it.chapterId }
+            mangaDao.getProgressForManga(mangaId),
+            mangaDao.getOverridesForManga(mangaId)
+        ) { chaptersMap, progressList, overrides ->
+            mergeChapters(chaptersMap[mangaId] ?: emptyList(), progressList, overrides)
+        }
+    }
 
-            chapters.map { ch ->
-                val progress = progressMap[ch.id]
-                if (progress != null) {
-                    ch.copy(
-                        lastReadPage = progress.lastReadPage,
-                        totalPages = if (progress.totalPages > 0) progress.totalPages else ch.totalPages,
-                        isRead = progress.isRead,
-                        isBookmarked = progress.isBookmarked,
-                        lastReadTime = progress.lastUpdatedTime
-                    )
-                } else {
-                    ch
-                }
-            }
+    /** Chapters removed from [mangaId] but still in the library folder; shown so they can be restored. */
+    fun getRemovedChaptersForManga(mangaId: String): Flow<List<Chapter>> {
+        return combine(
+            _scannedChapters,
+            mangaDao.getProgressForManga(mangaId),
+            mangaDao.getOverridesForManga(mangaId)
+        ) { chaptersMap, progressList, overrides ->
+            mergeChapters(chaptersMap[mangaId] ?: emptyList(), progressList, overrides, includeRemoved = true)
+                .filter { it.isRemoved }
         }
     }
 
@@ -291,9 +303,10 @@ class MangaRepository(
         if (!isRead) mangaDao.resetLastReadPage(mangaId, chapterId)
     }
 
-    /** Marks every scanned chapter of [mangaId] read or unread; returns those chapters. */
+    /** Marks every visible chapter of [mangaId] read or unread; returns those chapters. */
     suspend fun markMangaRead(mangaId: String, isRead: Boolean): List<Chapter> {
-        val chapters = _scannedChapters.value[mangaId].orEmpty()
+        // Hidden chapters are deleted as far as the library is concerned, so they are not touched
+        val chapters = getChaptersForManga(mangaId).first()
         chapters.forEach { markChapterRead(it.id, mangaId, isRead) }
         // Fully unread means never started: leaves the Reading tab and Continue Reading, shows under Unread
         if (!isRead) mangaDao.clearLastRead(mangaId)
@@ -339,5 +352,77 @@ class MangaRepository(
 
     suspend fun clearCache() = withContext(Dispatchers.IO) {
         CbzExtractor.clearChapterCache(context)
+    }
+
+    /**
+     * Renames a chapter in the list. The archive keeps its name on disk: the new name is stored and
+     * shown instead. A blank [title] drops the change and brings the file's name back.
+     */
+    suspend fun renameChapter(chapterId: String, mangaId: String, title: String) = withContext(Dispatchers.IO) {
+        val existing = mangaDao.getChapterOverrideOnce(chapterId)
+        val customTitle = title.trim().takeIf { it.isNotEmpty() }
+        when {
+            customTitle == null && existing?.isHidden != true -> mangaDao.deleteChapterOverride(chapterId)
+            customTitle == null -> mangaDao.saveChapterOverride(existing!!.copy(customTitle = null))
+            else -> mangaDao.saveChapterOverride(
+                ChapterOverrideEntity(chapterId, mangaId, customTitle, existing?.isHidden ?: false)
+            )
+        }
+        // Continue Reading and the widget show this saved name, not the chapter list's
+        if (mangaDao.getMangaByIdOnce(mangaId)?.lastReadChapterId == chapterId) {
+            val original = _scannedChapters.value[mangaId]?.firstOrNull { it.id == chapterId }?.title
+            val shown = customTitle ?: original ?: return@withContext
+            mangaDao.updateLastReadChapterTitle(mangaId, shown)
+        }
+    }
+
+    /**
+     * Removes a chapter from its series. The archive stays where it is; the chapter is remembered as
+     * hidden so a later scan doesn't bring it back, and its saved progress goes with it.
+     */
+    suspend fun deleteChapter(chapterId: String, mangaId: String) = withContext(Dispatchers.IO) {
+        val existing = mangaDao.getChapterOverrideOnce(chapterId)
+        mangaDao.saveChapterOverride(
+            ChapterOverrideEntity(chapterId, mangaId, existing?.customTitle, isHidden = true)
+        )
+        mangaDao.deleteChapterProgress(chapterId)
+        if (mangaDao.getMangaByIdOnce(mangaId)?.lastReadChapterId == chapterId) mangaDao.clearLastRead(mangaId)
+    }
+
+    /** Puts a removed chapter back in the series, keeping any rename. It comes back unread. */
+    suspend fun restoreChapter(chapterId: String) = withContext(Dispatchers.IO) {
+        val existing = mangaDao.getChapterOverrideOnce(chapterId) ?: return@withContext
+        if (existing.customTitle == null) mangaDao.deleteChapterOverride(chapterId)
+        else mangaDao.saveChapterOverride(existing.copy(isHidden = false))
+    }
+}
+
+/**
+ * The chapters a series shows: the ones found by the scan, with saved progress and the user's changes
+ * applied. Chapters marked hidden in [overrides] are dropped unless [includeRemoved] is set, in which
+ * case they are kept and flagged [Chapter.isRemoved]; a custom title replaces the name from the file.
+ */
+internal fun mergeChapters(
+    chapters: List<Chapter>,
+    progress: List<ChapterProgressEntity>,
+    overrides: List<ChapterOverrideEntity>,
+    includeRemoved: Boolean = false
+): List<Chapter> {
+    val progressMap = progress.associateBy { it.chapterId }
+    val overrideMap = overrides.associateBy { it.chapterId }
+    return chapters.mapNotNull { chapter ->
+        val override = overrideMap[chapter.id]
+        val removed = override?.isHidden == true
+        if (removed && !includeRemoved) return@mapNotNull null
+        val named = override?.customTitle?.let { chapter.copy(title = it) } ?: chapter
+        val saved = progressMap[chapter.id]
+        val merged = if (saved == null) named else named.copy(
+            lastReadPage = saved.lastReadPage,
+            totalPages = if (saved.totalPages > 0) saved.totalPages else named.totalPages,
+            isRead = saved.isRead,
+            isBookmarked = saved.isBookmarked,
+            lastReadTime = saved.lastUpdatedTime
+        )
+        if (removed) merged.copy(isRemoved = true) else merged
     }
 }

@@ -62,6 +62,9 @@ interface MangaDao {
     @Query("UPDATE manga_library SET lastReadPage = 0 WHERE id = :mangaId AND lastReadChapterId = :chapterId")
     suspend fun resetLastReadPage(mangaId: String, chapterId: String)
 
+    @Query("UPDATE manga_library SET lastReadChapterTitle = :chapterTitle WHERE id = :mangaId")
+    suspend fun updateLastReadChapterTitle(mangaId: String, chapterTitle: String)
+
     @Query("UPDATE chapter_progress SET isBookmarked = :isBookmarked, lastUpdatedTime = :time WHERE chapterId = :chapterId")
     suspend fun updateChapterBookmark(chapterId: String, isBookmarked: Boolean, time: Long)
 
@@ -70,6 +73,24 @@ interface MangaDao {
 
     @Query("SELECT * FROM chapter_progress")
     suspend fun getAllChapterProgressOnce(): List<ChapterProgressEntity>
+
+    @Query("SELECT * FROM chapter_overrides WHERE mangaId = :mangaId")
+    fun getOverridesForManga(mangaId: String): Flow<List<ChapterOverrideEntity>>
+
+    @Query("SELECT * FROM chapter_overrides")
+    fun getAllChapterOverrides(): Flow<List<ChapterOverrideEntity>>
+
+    @Query("SELECT * FROM chapter_overrides WHERE chapterId = :chapterId LIMIT 1")
+    suspend fun getChapterOverrideOnce(chapterId: String): ChapterOverrideEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveChapterOverride(override: ChapterOverrideEntity)
+
+    @Query("DELETE FROM chapter_overrides WHERE chapterId = :chapterId")
+    suspend fun deleteChapterOverride(chapterId: String)
+
+    @Query("DELETE FROM chapter_progress WHERE chapterId = :chapterId")
+    suspend fun deleteChapterProgress(chapterId: String)
 
     @Query("DELETE FROM manga_library WHERE id = :id")
     suspend fun deleteManga(id: String)

@@ -32,6 +32,20 @@ data class ChapterProgressEntity(
 )
 
 /**
+ * What the user changed about a chapter in the chapter list. Chapters come from scanning the library
+ * folder, so they are not rows of their own: a rename or a delete is kept here and re-applied on every
+ * scan. [customTitle] replaces the name taken from the file; [isHidden] keeps a chapter out of the
+ * series without deleting the archive.
+ */
+@Entity(tableName = "chapter_overrides")
+data class ChapterOverrideEntity(
+    @PrimaryKey val chapterId: String,
+    val mangaId: String,
+    val customTitle: String? = null,
+    val isHidden: Boolean = false
+)
+
+/**
  * Persisted record of an actual reading session.
  * Tracks reading duration, pages progressed, and chapter completion with exact timestamps.
  */
