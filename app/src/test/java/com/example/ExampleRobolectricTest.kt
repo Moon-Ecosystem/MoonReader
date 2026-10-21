@@ -410,6 +410,22 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `reading speed adds up short sessions and needs a minute of reading`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = com.example.data.db.AppDatabase.getDatabase(context)
+    val repo = com.example.data.repository.StatisticsRepository(db.statisticsDao(), db.mangaDao(), PreferencesManager(context))
+    fun session(seconds: Long, pages: Int) =
+      com.example.data.db.ReadingSessionEntity(0, "m", "c", "Ch", 0L, seconds * 1000, seconds * 1000, 0, pages, pages, false)
+
+    // Nothing read forward, or under a minute in all: no speed yet
+    assertEquals(0f, repo.computeHabits(emptyList()).readingSpeedPagesPerMinute)
+    assertEquals(0f, repo.computeHabits(listOf(session(50, 10))).readingSpeedPagesPerMinute)
+    assertEquals(0f, repo.computeHabits(listOf(session(120, 0))).readingSpeedPagesPerMinute)
+    // Four 20-second sessions of 5 pages each, none long enough alone: 20 pages in 80 s is 15 pages/min
+    assertEquals(15f, repo.computeHabits(List(4) { session(20, 5) }).readingSpeedPagesPerMinute)
+  }
+
+  @Test
   fun `statistics summary and streaks calculation`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val db = com.example.data.db.AppDatabase.getDatabase(context)

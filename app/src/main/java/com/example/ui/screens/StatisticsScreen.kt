@@ -1412,8 +1412,9 @@ private fun ReadingHabitsSection(habits: ReadingHabits) {
             HabitRecordRow(
                 icon = Icons.Default.Speed,
                 title = "Average Reading Speed",
-                value = if (habits.readingSpeedPagesPerMinute > 0f) String.format(Locale.US, "%.1f pages / min", habits.readingSpeedPagesPerMinute) else "Calculating…",
-                subtitle = "Estimated page transition velocity"
+                value = if (habits.readingSpeedPagesPerMinute > 0f) String.format(Locale.US, "%.1f pages / min", habits.readingSpeedPagesPerMinute) else "Not enough data",
+                subtitle = if (habits.readingSpeedPagesPerMinute > 0f) "Pages turned forward per minute of reading"
+                else "Shows once you've read for a minute"
             )
         }
     }

@@ -442,11 +442,12 @@ class StatisticsRepository(
         val recordChapters = recordChaptersEntry?.value?.count { it.completedChapter } ?: 0
         val recordChaptersDate = recordChaptersEntry?.key?.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))
 
-        // Estimated reading speed (pages per minute from sessions with > 0 pages and > 30s)
-        val validSpeedSessions = sessions.filter { it.durationMillis >= 30000L && it.pagesProgressed > 0 }
-        val totalSpeedPages = validSpeedSessions.sumOf { it.pagesProgressed }
-        val totalSpeedMinutes = validSpeedSessions.sumOf { it.durationMillis } / 60000f
-        val readingSpeed = if (totalSpeedMinutes > 0f) totalSpeedPages / totalSpeedMinutes else 0f
+        // Reading speed over every session that moved forward. Totalled rather than filtered per session,
+        // so many short sessions still add up; under a minute of such reading in all is too little to say
+        val speedSessions = sessions.filter { it.pagesProgressed > 0 && it.durationMillis > 0L }
+        val totalSpeedPages = speedSessions.sumOf { it.pagesProgressed }
+        val totalSpeedMinutes = speedSessions.sumOf { it.durationMillis } / 60000f
+        val readingSpeed = if (totalSpeedMinutes >= 1f) totalSpeedPages / totalSpeedMinutes else 0f
 
         return ReadingHabits(
             currentStreak = currentStreak,
