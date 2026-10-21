@@ -103,7 +103,9 @@ data class Chapter(
     val totalPages: Int = 0,
     val isRead: Boolean = false,
     val isBookmarked: Boolean = false,
-    val lastReadTime: Long = 0L
+    val lastReadTime: Long = 0L,
+    /** Removed from the series by the user; listed only while "Removed chapters" is on, so it can be restored. */
+    val isRemoved: Boolean = false
 )
 
 /**

@@ -393,7 +393,10 @@ fun HomeScreen(
                     // Pinned above the grid so the tabs stay reachable while scrolling
                     CollectionTabs(
                         collections = collections,
-                        selected = selectedCollection,
+                        // The page being scrolled towards, so the tab label highlights before the swipe
+                        // settles; the settled page is saved above
+                        selected = tabIds.getOrNull(pagerState.targetPage) ?: selectedCollection,
+                        pagerPosition = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
                         counts = homeLibrary.mapValues { it.value.size },
                         onSelect = viewModel::selectCollection,
                         onCreate = { newCollectionFor = NEW_COLLECTION_ONLY },

@@ -8,6 +8,7 @@ import com.example.ui.screens.readableFolderPath
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -223,7 +224,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `migration 3 to 4 adds collections without touching existing data`() = kotlinx.coroutines.runBlocking {
+  fun `migration 3 to 5 adds collections and chapter changes without touching existing data`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val name = "migration_3_4_test.db"
     context.deleteDatabase(name)
@@ -231,25 +232,32 @@ class ExampleRobolectricTest {
       .addMigrations(
         com.example.data.db.AppDatabase.MIGRATION_1_2,
         com.example.data.db.AppDatabase.MIGRATION_2_3,
-        com.example.data.db.AppDatabase.MIGRATION_3_4
+        com.example.data.db.AppDatabase.MIGRATION_3_4,
+        com.example.data.db.AppDatabase.MIGRATION_4_5
       )
       .allowMainThreadQueries()
       .build() // no destructive fallback: a schema mismatch must fail here, not wipe data
 
-    // A version 3 database: today's schema minus the collection tables, with a library row in it
+    // A version 3 database: today's schema minus the collection and chapter override tables, with a library row in it
     open().apply {
       mangaDao().insertOrUpdateManga(com.example.data.db.MangaEntity(id = "m1", title = "Kept", folderUriString = "m1"))
       openHelper.writableDatabase.apply {
         execSQL("DROP TABLE collection_manga")
         execSQL("DROP TABLE collections")
+        execSQL("DROP TABLE chapter_overrides")
         execSQL("PRAGMA user_version = 3")
       }
       close()
     }
 
-    // Reopening runs MIGRATION_3_4, and Room validates the tables it creates
+    // Reopening runs MIGRATION_3_4 and MIGRATION_4_5, and Room validates the tables they create
     val db = open()
     assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
+    db.mangaDao().saveChapterOverride(com.example.data.db.ChapterOverrideEntity("ch1", "m1", "Renamed", isHidden = true))
+    assertEquals(
+      "Renamed" to true,
+      db.mangaDao().getChapterOverrideOnce("ch1")!!.let { it.customTitle to it.isHidden }
+    )
     val dao = db.collectionDao()
     val horror = dao.create("Horror")
     val seinen = dao.create("Seinen")
@@ -266,6 +274,79 @@ class ExampleRobolectricTest {
     assertEquals(listOf("Seinen"), dao.observeCollections().first().map { it.name })
     assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
     db.close()
+  }
+
+  @Test
+  fun `renaming the last read chapter updates the continue reading title`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val root = java.io.File(context.cacheDir, "rename_lib").apply { deleteRecursively(); mkdirs() }
+    val dir = java.io.File(root, "Book").apply { mkdirs() }
+    for (name in listOf("Ch 1.cbz", "Ch 2.cbz")) {
+      java.util.zip.ZipOutputStream(java.io.FileOutputStream(java.io.File(dir, name))).use { zos ->
+        zos.putNextEntry(java.util.zip.ZipEntry("p1.jpg"))
+        zos.write("page".toByteArray())
+        zos.closeEntry()
+      }
+    }
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    val repo = com.example.data.repository.MangaRepository(
+      context, dao, PreferencesManager(context).apply { setFolderUri(root.absolutePath) }
+    )
+    repo.scanCurrentLibrary()
+    val mangaId = repo.libraryManga.first { it.isNotEmpty() }.single().id
+    val chapters = repo.getChaptersForManga(mangaId).first()
+    val second = chapters.first { it.fileName == "Ch 2.cbz" }
+    fun lastReadTitle() = kotlinx.coroutines.runBlocking { dao.getMangaByIdOnce(mangaId)!!.lastReadChapterTitle }
+
+    repo.saveReadingProgress(mangaId, second.id, second.title, page = 3, totalPages = 10, isCompleted = false)
+    assertEquals("Ch 2", lastReadTitle())
+
+    repo.renameChapter(second.id, mangaId, "The Duel")
+    assertEquals("The Duel", lastReadTitle())
+    assertEquals("The Duel", repo.getChaptersForManga(mangaId).first().first { it.id == second.id }.title)
+
+    // Renaming another chapter leaves the continue reading title alone
+    repo.renameChapter(chapters.first { it.fileName == "Ch 1.cbz" }.id, mangaId, "The Beginning")
+    assertEquals("The Duel", lastReadTitle())
+
+    // A blank name clears the change: the file's own name comes back everywhere
+    repo.renameChapter(second.id, mangaId, "  ")
+    assertEquals("Ch 2", lastReadTitle())
+  }
+
+  @Test
+  fun `a removed chapter leaves the series and can be restored`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val root = java.io.File(context.cacheDir, "remove_lib").apply { deleteRecursively(); mkdirs() }
+    val dir = java.io.File(root, "Book").apply { mkdirs() }
+    for (name in listOf("Ch 1.cbz", "Ch 2.cbz")) {
+      java.util.zip.ZipOutputStream(java.io.FileOutputStream(java.io.File(dir, name))).use { zos ->
+        zos.putNextEntry(java.util.zip.ZipEntry("p1.jpg"))
+        zos.write("page".toByteArray())
+        zos.closeEntry()
+      }
+    }
+    val dao = com.example.data.db.AppDatabase.getDatabase(context).mangaDao()
+    val repo = com.example.data.repository.MangaRepository(
+      context, dao, PreferencesManager(context).apply { setFolderUri(root.absolutePath) }
+    )
+    repo.scanCurrentLibrary()
+    val mangaId = repo.libraryManga.first { it.isNotEmpty() }.single().id
+    val chapters = repo.getChaptersForManga(mangaId).first()
+    val second = chapters.first { it.fileName == "Ch 2.cbz" }
+    repo.saveReadingProgress(mangaId, second.id, second.title, page = 3, totalPages = 10, isCompleted = false)
+
+    repo.deleteChapter(second.id, mangaId)
+    assertEquals(listOf("Ch 1.cbz"), repo.getChaptersForManga(mangaId).first().map { it.fileName })
+    assertEquals(listOf(second.id), repo.getRemovedChaptersForManga(mangaId).first().map { it.id })
+    assertEquals("removed chapters no longer count", 1, repo.libraryManga.first { it.any { m -> m.id == mangaId } }.single { it.id == mangaId }.chapterCount)
+    org.junit.Assert.assertNull("its progress goes too", dao.getProgressForChapterOnce(second.id))
+    assertNull("continue reading no longer points at it", dao.getMangaByIdOnce(mangaId)!!.lastReadChapterId)
+
+    repo.restoreChapter(second.id)
+    assertTrue(repo.getRemovedChaptersForManga(mangaId).first().isEmpty())
+    assertEquals(listOf("Ch 1.cbz", "Ch 2.cbz"), repo.getChaptersForManga(mangaId).first().map { it.fileName })
+    assertEquals(2, repo.libraryManga.first { it.any { m -> m.id == mangaId } }.single { it.id == mangaId }.chapterCount)
   }
 
   @Test
@@ -326,6 +407,22 @@ class ExampleRobolectricTest {
       assertEquals(extractor.coverFileFor(context, manga.id).absolutePath, cover)
       assertEquals("${manga.title} page 1", java.io.File(cover!!).readText()) // raw-copy fallback for fake bytes
     }
+  }
+
+  @Test
+  fun `reading speed adds up short sessions and needs a minute of reading`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = com.example.data.db.AppDatabase.getDatabase(context)
+    val repo = com.example.data.repository.StatisticsRepository(db.statisticsDao(), db.mangaDao(), PreferencesManager(context))
+    fun session(seconds: Long, pages: Int) =
+      com.example.data.db.ReadingSessionEntity(0, "m", "c", "Ch", 0L, seconds * 1000, seconds * 1000, 0, pages, pages, false)
+
+    // Nothing read forward, or under a minute in all: no speed yet
+    assertEquals(0f, repo.computeHabits(emptyList()).readingSpeedPagesPerMinute)
+    assertEquals(0f, repo.computeHabits(listOf(session(50, 10))).readingSpeedPagesPerMinute)
+    assertEquals(0f, repo.computeHabits(listOf(session(120, 0))).readingSpeedPagesPerMinute)
+    // Four 20-second sessions of 5 pages each, none long enough alone: 20 pages in 80 s is 15 pages/min
+    assertEquals(15f, repo.computeHabits(List(4) { session(20, 5) }).readingSpeedPagesPerMinute)
   }
 
   @Test

@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.BuildConfig
 import com.example.data.db.BackupDao
 import com.example.data.db.BackupData
+import com.example.data.db.ChapterOverrideEntity
 import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.CollectionEntity
 import com.example.data.db.CollectionMangaEntity
@@ -111,7 +112,8 @@ class BackupRepository(private val context: Context, private val dao: BackupDao)
                 collections = data.collections,
                 collectionManga = data.collectionManga.map { it.copy(mangaId = id(it.mangaId)) },
                 // Offline progress from the backup could overwrite newer AniList data; a refresh pulls the current state
-                tracks = data.tracks.map { it.copy(mangaId = id(it.mangaId), pendingSync = false) }
+                tracks = data.tracks.map { it.copy(mangaId = id(it.mangaId), pendingSync = false) },
+                chapterOverrides = data.chapterOverrides.map { it.copy(chapterId = id(it.chapterId), mangaId = id(it.mangaId)) }
             )
         )
         settings?.let(::applySettings)
@@ -278,6 +280,13 @@ private fun libraryToJson(data: BackupData) = JSONObject()
             .put("completedAt", it.completedAt)
             .put("pendingSync", it.pendingSync)
     }))
+    .put("chapterOverrides", JSONArray(data.chapterOverrides.map {
+        JSONObject()
+            .put("chapterId", it.chapterId)
+            .put("mangaId", it.mangaId)
+            .put("customTitle", it.customTitle)
+            .put("isHidden", it.isHidden)
+    }))
 
 private fun libraryFromJson(json: JSONObject) = BackupData(
     manga = json.getJSONArray("manga").mapObjects {
@@ -344,5 +353,14 @@ private fun libraryFromJson(json: JSONObject) = BackupData(
             completedAt = it.stringOrNull("completedAt"),
             pendingSync = it.optBoolean("pendingSync")
         )
-    }
+    },
+    // Older backups have no chapter changes; an absent array reads as none
+    chapterOverrides = json.optJSONArray("chapterOverrides")?.mapObjects {
+        ChapterOverrideEntity(
+            chapterId = it.getString("chapterId"),
+            mangaId = it.getString("mangaId"),
+            customTitle = it.stringOrNull("customTitle"),
+            isHidden = it.optBoolean("isHidden")
+        )
+    }.orEmpty()
 )

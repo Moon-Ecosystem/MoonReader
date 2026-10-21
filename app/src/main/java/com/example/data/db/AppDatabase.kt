@@ -14,9 +14,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReadingSessionEntity::class,
         MangaTrackEntity::class,
         CollectionEntity::class,
-        CollectionMangaEntity::class
+        CollectionMangaEntity::class,
+        ChapterOverrideEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +96,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Chapter renames and deletes made in the chapter list; the archives themselves are untouched
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapter_overrides` (`chapterId` TEXT NOT NULL, " +
+                        "`mangaId` TEXT NOT NULL, `customTitle` TEXT, `isHidden` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`chapterId`))"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -102,7 +114,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "manga_reader_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

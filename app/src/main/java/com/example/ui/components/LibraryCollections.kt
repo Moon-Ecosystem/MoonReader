@@ -16,7 +16,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.lerp
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.unit.toSize
+import kotlin.math.ceil
+import kotlin.math.floor
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -36,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,17 +62,23 @@ import com.example.data.preferences.PreferencesManager
 /**
  * Home screen tabs: All, then each collection, then "+" to make one. Long-press a collection to rename or
  * delete it. [counts] holds the number shown on each tab (keyed like [PreferencesManager.ALL_COLLECTIONS]).
+ * [pagerPosition] is the pager's fractional page (All is 0); the underline slides with it during a swipe.
  */
 @Composable
 fun CollectionTabs(
     collections: List<CollectionEntity>,
     selected: Long,
+    pagerPosition: () -> Float,
     counts: Map<Long, Int>,
     onSelect: (Long) -> Unit,
     onCreate: () -> Unit,
     onRename: (CollectionEntity) -> Unit,
     onDelete: (CollectionEntity) -> Unit
 ) {
+    // Where each tab sits in the row, keyed by page index, so the underline can move between two of them
+    val tabBounds = remember { mutableStateMapOf<Int, Rect>() }
+    fun Modifier.trackBounds(index: Int) = onPlaced { tabBounds[index] = Rect(it.positionInParent(), it.size.toSize()) }
+    val indicator = MaterialTheme.colorScheme.primary
     // A plain scrolling row: ScrollableTabRow also gives "+" a 90 dp slot, which left it far from the tabs
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -72,6 +86,21 @@ fun CollectionTabs(
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp)
+            // Underline under the tab the pager is on, blended into the next one as the swipe progresses;
+            // read while drawing, so a swipe redraws the row without recomposing it
+            .drawBehind {
+                val position = pagerPosition().coerceIn(0f, collections.size.toFloat())
+                val from = tabBounds[floor(position).toInt()] ?: return@drawBehind
+                val to = tabBounds[ceil(position).toInt()] ?: from
+                val bounds = lerp(from, to, position - floor(position))
+                val thickness = 3.dp.toPx()
+                drawRoundRect(
+                    color = indicator,
+                    topLeft = Offset(bounds.left, bounds.bottom - thickness),
+                    size = Size(bounds.width, thickness),
+                    cornerRadius = CornerRadius(thickness / 2)
+                )
+            }
             .testTag("collection_tabs")
     ) {
         CollectionTab(
@@ -79,9 +108,9 @@ fun CollectionTabs(
             count = counts[PreferencesManager.ALL_COLLECTIONS],
             selected = selected == PreferencesManager.ALL_COLLECTIONS,
             onClick = { onSelect(PreferencesManager.ALL_COLLECTIONS) },
-            modifier = Modifier.testTag("collection_tab_all")
+            modifier = Modifier.trackBounds(0).testTag("collection_tab_all")
         )
-        collections.forEach { collection ->
+        collections.forEachIndexed { index, collection ->
             CollectionTab(
                 label = collection.name,
                 count = counts[collection.id],
@@ -89,7 +118,7 @@ fun CollectionTabs(
                 onClick = { onSelect(collection.id) },
                 onRename = { onRename(collection) },
                 onDelete = { onDelete(collection) },
-                modifier = Modifier.testTag("collection_tab_${collection.id}")
+                modifier = Modifier.trackBounds(index + 1).testTag("collection_tab_${collection.id}")
             )
         }
         Box(
@@ -123,7 +152,6 @@ private fun CollectionTab(
     onDelete: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val indicator = MaterialTheme.colorScheme.primary
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
@@ -133,18 +161,6 @@ private fun CollectionTab(
                 onClick = onClick,
                 onLongClick = if (onRename != null) ({ showMenu = true }) else null
             )
-            // Underline across the selected tab
-            .drawBehind {
-                if (selected) {
-                    val thickness = 3.dp.toPx()
-                    drawRoundRect(
-                        color = indicator,
-                        topLeft = Offset(0f, size.height - thickness),
-                        size = Size(size.width, thickness),
-                        cornerRadius = CornerRadius(thickness / 2)
-                    )
-                }
-            }
             .padding(horizontal = 16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

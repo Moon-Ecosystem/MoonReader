@@ -37,14 +37,17 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -57,6 +60,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TextButton
@@ -77,6 +81,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -158,13 +163,41 @@ fun ChapterListScreen(
 
     val readCount = chapters.count { it.isRead }
     val aniListUser by viewModel.preferencesManager.aniListUserName.collectAsStateWithLifecycle()
+    val removed by viewModel.removedChapters.collectAsStateWithLifecycle()
+
+    // Long-press a chapter to rename or remove it; the dialogs are held here so one is open at a time
+    var chapterToRename by remember { mutableStateOf<Chapter?>(null) }
+    var chapterToRemove by remember { mutableStateOf<Chapter?>(null) }
+    chapterToRename?.let { chapter ->
+        RenameChapterDialog(
+            chapter = chapter,
+            onDismiss = { chapterToRename = null },
+            onRename = { title ->
+                viewModel.renameChapter(chapter, title)
+                chapterToRename = null
+            }
+        )
+    }
+    chapterToRemove?.let { chapter ->
+        RemoveChapterDialog(
+            chapter = chapter,
+            onDismiss = { chapterToRemove = null },
+            onRemove = {
+                viewModel.deleteChapter(chapter)
+                chapterToRemove = null
+            }
+        )
+    }
 
     // What the list shows; starts over for each series
     var chapterFilter by rememberSaveable(manga.id) { mutableStateOf(ChapterFilter.ALL) }
     var bookmarkedOnly by rememberSaveable(manga.id) { mutableStateOf(false) }
+    var showRemoved by rememberSaveable(manga.id) { mutableStateOf(false) }
     var byLastRead by rememberSaveable(manga.id) { mutableStateOf(false) }
-    val filtered = chapterFilter != ChapterFilter.ALL || bookmarkedOnly
-    val shownChapters = visibleChapters(chapters, chapterFilter, bookmarkedOnly, byLastRead)
+    val filtered = chapterFilter != ChapterFilter.ALL || bookmarkedOnly || showRemoved
+    // Removed chapters come last: they are offered back, not part of the series any more
+    val shownChapters = visibleChapters(chapters, chapterFilter, bookmarkedOnly, byLastRead) +
+        (if (showRemoved) removed else emptyList())
     var showFilterMenu by remember { mutableStateOf(false) }
 
     // The bar is see-through over the backdrop and turns solid once the list scrolls under it
@@ -222,6 +255,12 @@ fun ChapterListScreen(
                                         leadingIcon = { Checkbox(checked = bookmarkedOnly, onCheckedChange = null) },
                                         onClick = { bookmarkedOnly = !bookmarkedOnly },
                                         modifier = Modifier.testTag("chapter_filter_bookmarked")
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Removed") },
+                                        leadingIcon = { Checkbox(checked = showRemoved, onCheckedChange = null) },
+                                        onClick = { showRemoved = !showRemoved },
+                                        modifier = Modifier.testTag("chapter_filter_removed")
                                     )
                                 }
                                 VerticalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -548,6 +587,9 @@ fun ChapterListScreen(
                             if (bookmarkedOnly) {
                                 FilterChipWithClear("Bookmarked", { bookmarkedOnly = false })
                             }
+                            if (showRemoved) {
+                                FilterChipWithClear("Removed", { showRemoved = false })
+                            }
                         }
                     }
 
@@ -567,6 +609,7 @@ fun ChapterListScreen(
                             TextButton(onClick = {
                                 chapterFilter = ChapterFilter.ALL
                                 bookmarkedOnly = false
+                                showRemoved = false
                             }) { Text("Clear filters") }
                         }
                     }
@@ -577,9 +620,12 @@ fun ChapterListScreen(
                 ChapterItemModern(
                     chapter = chapter,
                     manga = manga,
-                    onChapterClick = { viewModel.selectChapter(chapter) },
+                    onChapterClick = { if (!chapter.isRemoved) viewModel.selectChapter(chapter) },
                     onBookmarkClick = { viewModel.toggleBookmark(chapter) },
-                    onSetRead = { isRead -> viewModel.markChapterRead(chapter, isRead) }
+                    onSetRead = { isRead -> viewModel.markChapterRead(chapter, isRead) },
+                    onRename = { chapterToRename = chapter },
+                    onRemove = { chapterToRemove = chapter },
+                    onRestore = { viewModel.restoreChapter(chapter) }
                 )
             }
         }
@@ -671,10 +717,13 @@ private fun ChapterItemModern(
     manga: Manga,
     onChapterClick: () -> Unit,
     onBookmarkClick: () -> Unit,
-    onSetRead: (Boolean) -> Unit
+    onSetRead: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onRemove: () -> Unit,
+    onRestore: () -> Unit
 ) {
     // Long-press opens a menu to mark the chapter read/unread without opening it; only the read flag
-    // changes, so the saved page position is kept
+    // changes, so the saved page position is kept. A removed chapter only offers to come back.
     var menuOpen by remember { mutableStateOf(false) }
     val readActionLabel = if (chapter.isRead) "Mark as Unread" else "Mark as Read"
 
@@ -690,6 +739,7 @@ private fun ChapterItemModern(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .alpha(if (chapter.isRemoved) 0.6f else 1f)
             .combinedClickable(
                 onClick = onChapterClick,
                 onLongClickLabel = readActionLabel,
@@ -734,67 +784,177 @@ private fun ChapterItemModern(
                 Text(
                     text = chapter.title,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (chapter.isRead) FontWeight.Normal else FontWeight.Bold,
+                    fontWeight = if (chapter.isRead || chapter.isRemoved) FontWeight.Normal else FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (chapter.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                    color = if (chapter.isRead || chapter.isRemoved) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = if (chapter.isRead) "Completed" else if (chapter.lastReadPage > 0) "Page ${chapter.lastReadPage + 1}" else "Unread",
+                    text = when {
+                        chapter.isRemoved -> "Removed from series"
+                        chapter.isRead -> "Completed"
+                        chapter.lastReadPage > 0 -> "Page ${chapter.lastReadPage + 1}"
+                        else -> "Unread"
+                    },
                     fontSize = 11.sp,
-                    color = if (chapter.lastReadPage > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (!chapter.isRemoved && chapter.lastReadPage > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            // Bookmark icon
-            IconButton(
-                onClick = onBookmarkClick,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Bookmark,
-                    contentDescription = "Bookmark",
-                    tint = if (chapter.isBookmarked) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            // A removed chapter is not part of the series: only the restore action applies to it
+            if (!chapter.isRemoved) {
+                // Bookmark icon
+                IconButton(
+                    onClick = onBookmarkClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bookmark,
+                        contentDescription = "Bookmark",
+                        tint = if (chapter.isBookmarked) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
 
-            // Circular Play Icon
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Read",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
+                // Circular Play Icon
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Read",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }
 
     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-        DropdownMenuItem(
-            text = { Text(readActionLabel) },
-            leadingIcon = {
-                Icon(
-                    imageVector = if (chapter.isRead) Icons.Default.RadioButtonUnchecked else Icons.Default.CheckCircle,
-                    contentDescription = null
-                )
-            },
-            onClick = {
-                menuOpen = false
-                onSetRead(!chapter.isRead)
-            },
-            modifier = Modifier.testTag("chapter_mark_read_${chapter.id}")
-        )
+        if (chapter.isRemoved) {
+            DropdownMenuItem(
+                text = { Text("Restore to series") },
+                leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onRestore()
+                },
+                modifier = Modifier.testTag("chapter_restore_${chapter.id}")
+            )
+        } else {
+            DropdownMenuItem(
+                text = { Text(readActionLabel) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = if (chapter.isRead) Icons.Default.RadioButtonUnchecked else Icons.Default.CheckCircle,
+                        contentDescription = null
+                    )
+                },
+                onClick = {
+                    menuOpen = false
+                    onSetRead(!chapter.isRead)
+                },
+                modifier = Modifier.testTag("chapter_mark_read_${chapter.id}")
+            )
+            DropdownMenuItem(
+                text = { Text("Rename") },
+                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onRename()
+                },
+                modifier = Modifier.testTag("chapter_rename_${chapter.id}")
+            )
+            DropdownMenuItem(
+                text = { Text("Remove from series") },
+                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onRemove()
+                },
+                modifier = Modifier.testTag("chapter_remove_${chapter.id}")
+            )
+        }
     }
     }
+}
+
+/** Renames a chapter in the list; the archive keeps its own file name. */
+@Composable
+private fun RenameChapterDialog(
+    chapter: Chapter,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit
+) {
+    var title by remember(chapter.id) { mutableStateOf(chapter.title) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename chapter") },
+        text = {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                singleLine = true,
+                label = { Text("Chapter name") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("chapter_rename_input")
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onRename(title) },
+                modifier = Modifier.testTag("chapter_rename_confirm")
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("chapter_rename_cancel")) {
+                Text("Cancel")
+            }
+        },
+        modifier = Modifier.testTag("chapter_rename_dialog")
+    )
+}
+
+/**
+ * Confirms taking a chapter out of the series. The archive file is never deleted, and the chapter can be
+ * brought back from the list's "Removed" filter.
+ */
+@Composable
+private fun RemoveChapterDialog(
+    chapter: Chapter,
+    onDismiss: () -> Unit,
+    onRemove: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remove from series?") },
+        text = {
+            Text(
+                "\"${chapter.title}\" is taken out of this series and its reading progress is cleared. " +
+                    "The file stays on your device, and you can restore the chapter from the list's filter menu."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onRemove, modifier = Modifier.testTag("chapter_remove_confirm")) {
+                Text("Remove")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("chapter_remove_cancel")) {
+                Text("Cancel")
+            }
+        },
+        modifier = Modifier.testTag("chapter_remove_dialog")
+    )
 }
