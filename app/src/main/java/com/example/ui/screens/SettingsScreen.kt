@@ -114,6 +114,7 @@ fun SettingsScreen(
     val accentPreset by viewModel.preferencesManager.accentPreset.collectAsStateWithLifecycle()
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
+    val showPageNumber by viewModel.preferencesManager.showPageNumber.collectAsStateWithLifecycle()
     val isAppLockEnabled by viewModel.preferencesManager.isAppLockEnabled.collectAsStateWithLifecycle()
     val trackStatistics by viewModel.preferencesManager.trackStatistics.collectAsStateWithLifecycle()
     val inactivitySeconds by viewModel.preferencesManager.inactivityThresholdSeconds.collectAsStateWithLifecycle()
@@ -614,6 +615,32 @@ fun SettingsScreen(
                                     Switch(
                                         checked = keepScreenOn,
                                         onCheckedChange = { viewModel.setKeepScreenOn(it) }
+                                    )
+                                }
+
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Show Page Number",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "Small page counter at the bottom while the menu is hidden",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = showPageNumber,
+                                        onCheckedChange = { viewModel.setShowPageNumber(it) },
+                                        modifier = Modifier.testTag("setting_show_page_number")
                                     )
                                 }
                             }
