@@ -113,6 +113,9 @@ class PreferencesManager(context: Context) {
     private val _keepScreenOn = MutableStateFlow(prefs.getBoolean(KEY_KEEP_SCREEN_ON, true))
     val keepScreenOn: StateFlow<Boolean> = _keepScreenOn.asStateFlow()
 
+    private val _showPageNumber = MutableStateFlow(prefs.getBoolean(KEY_SHOW_PAGE_NUMBER, true))
+    val showPageNumber: StateFlow<Boolean> = _showPageNumber.asStateFlow()
+
     // App Lock security preferences
     private val _isAppLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_APP_LOCK_ENABLED, false))
     val isAppLockEnabled: StateFlow<Boolean> = _isAppLockEnabled.asStateFlow()
@@ -196,6 +199,11 @@ class PreferencesManager(context: Context) {
         _keepScreenOn.value = enabled
     }
 
+    fun setShowPageNumber(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_PAGE_NUMBER, enabled).apply()
+        _showPageNumber.value = enabled
+    }
+
     fun setAppLockEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_APP_LOCK_ENABLED, enabled).apply()
         _isAppLockEnabled.value = enabled
@@ -259,6 +267,7 @@ class PreferencesManager(context: Context) {
         const val ALL_COLLECTIONS = 0L
         private const val KEY_VOLUME_KEYS = "pref_volume_keys"
         private const val KEY_KEEP_SCREEN_ON = "pref_keep_screen_on"
+        private const val KEY_SHOW_PAGE_NUMBER = "pref_show_page_number"
         private const val KEY_APP_LOCK_ENABLED = "pref_app_lock_enabled"
         private const val KEY_PIN_HASH = "pref_pin_hash"
         private const val KEY_TRACK_STATISTICS = "pref_track_statistics"

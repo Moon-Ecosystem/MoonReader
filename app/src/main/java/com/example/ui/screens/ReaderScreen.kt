@@ -174,6 +174,7 @@ fun ReaderScreen(
     val readingDirection by viewModel.preferencesManager.readingDirection.collectAsStateWithLifecycle()
     val readerTheme by viewModel.preferencesManager.readerTheme.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.preferencesManager.keepScreenOn.collectAsStateWithLifecycle()
+    val showPageNumber by viewModel.preferencesManager.showPageNumber.collectAsStateWithLifecycle()
 
     // Handle Keep Screen On
     DisposableEffect(keepScreenOn) {
@@ -356,6 +357,30 @@ fun ReaderScreen(
                         showControls = !showControls
                     },
                     onCenterLongPress = onCenterLongPress
+                )
+            }
+
+            // Faint page counter for full-screen reading; the bottom bar shows its own while visible
+            AnimatedVisibility(
+                visible = showPageNumber && !showControls,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(
+                        WindowInsets.navigationBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                            .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
+                    )
+                    .padding(bottom = 6.dp)
+            ) {
+                Text(
+                    text = "${readerPage + 1} / ${pages.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = readerTextColor.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .background(readerBgColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .testTag("reader_page_counter")
                 )
             }
 

@@ -902,6 +902,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         preferencesManager.setKeepScreenOn(enabled)
     }
 
+    fun setShowPageNumber(enabled: Boolean) {
+        preferencesManager.setShowPageNumber(enabled)
+    }
+
     fun unlockApp(pin: String): Boolean {
         val valid = preferencesManager.verifyPin(pin)
         if (valid) {

@@ -25,6 +25,7 @@ _Requires Android 7.0 (API 24) or higher._
 
 - **Your files, nothing else.** Pick a folder with Android's folder picker and Moon Reader finds every series inside it. No storage permissions, nothing unzipped to disk.
 - **Three reading modes:** right-to-left (manga), left-to-right and vertical webtoon scroll.
+- **Page counter:** a small, faded page number at the bottom while the reader menu is hidden. Turn it off in Settings → Reader.
 - **Smooth zoom:** pinch up to 5×, pan with fling, double-tap to zoom 2× where you tap.
 - **Page actions:** long-press a page to set it as the series cover, copy it, or save it to your gallery.
 - **Open with Moon Reader:** read a `.cbz` or `.cbr` straight from your file manager or browser without adding it to the library.
