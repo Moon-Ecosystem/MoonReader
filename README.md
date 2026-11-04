@@ -8,16 +8,22 @@
 
 Read `.cbz`, `.cbr` and `.7z` manga and comic archives on Android. No ads, no accounts, no telemetry.
 
-[![Release](https://img.shields.io/github/v/release/Varun-666/MoonReader?label=Release&labelColor=27303D&color=0877d2)](https://github.com/Varun-666/MoonReader/releases/latest)
-[![Build](https://img.shields.io/github/actions/workflow/status/Varun-666/MoonReader/release.yml?labelColor=27303D)](https://github.com/Varun-666/MoonReader/actions/workflows/release.yml)
+[![Release](https://img.shields.io/github/v/release/Moon-Ecosystem/MoonReader?label=Release&labelColor=27303D&color=0877d2)](https://github.com/Moon-Ecosystem/MoonReader/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/Moon-Ecosystem/MoonReader/release.yml?labelColor=27303D)](https://github.com/Moon-Ecosystem/MoonReader/actions/workflows/release.yml)
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?labelColor=27303D)](#download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?labelColor=27303D)](LICENSE)
+
+<img src=".github/assets/screenshots/library.webp" alt="The library, with series shown as cover cards" width="160"/>
+<img src=".github/assets/screenshots/series.webp" alt="A series page with its cover, a Continue button and the chapter list" width="160"/>
+<img src=".github/assets/screenshots/reader.webp" alt="Reading a manga page right to left" width="160"/>
+<img src=".github/assets/screenshots/stats.webp" alt="Reading statistics with time read, streak and a weekly activity chart" width="160"/>
+<img src=".github/assets/screenshots/settings.webp" alt="Settings with backup and restore, accent colors and reading direction" width="160"/>
 
 </div>
 
 ## Download
 
-Grab the latest signed APK from [Releases](https://github.com/Varun-666/MoonReader/releases/latest). Every merge to `main` publishes a new build.
+Grab the latest signed APK from [Releases](https://github.com/Moon-Ecosystem/MoonReader/releases/latest). Every merge to `main` publishes a new build.
 
 _Requires Android 7.0 (API 24) or higher._
 
@@ -73,7 +79,7 @@ Files named as volumes (`Vol 3`, `v03`) update the volume count on AniList inste
 You need JDK 21, Gradle 9.3.1 and an Android SDK with platform 36.1. The repo has no Gradle wrapper, so use a system `gradle` or Android Studio.
 
 ```sh
-git clone https://github.com/Varun-666/MoonReader.git
+git clone https://github.com/Moon-Ecosystem/MoonReader.git
 cd MoonReader
 gradle :app:testDebugUnitTest   # unit tests
 gradle :app:assembleDebug       # debug APK (needs debug.keystore at the repo root)
