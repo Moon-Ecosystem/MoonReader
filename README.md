@@ -13,6 +13,12 @@ Read `.cbz`, `.cbr` and `.7z` manga and comic archives on Android. No ads, no ac
 [![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?labelColor=27303D)](#download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?labelColor=27303D)](LICENSE)
 
+<img src=".github/assets/screenshots/library.webp" alt="The library, with series shown as cover cards" width="160"/>
+<img src=".github/assets/screenshots/series.webp" alt="A series page with its cover, a Continue button and the chapter list" width="160"/>
+<img src=".github/assets/screenshots/reader.webp" alt="Reading a manga page right to left" width="160"/>
+<img src=".github/assets/screenshots/stats.webp" alt="Reading statistics with time read, streak and a weekly activity chart" width="160"/>
+<img src=".github/assets/screenshots/settings.webp" alt="Settings with backup and restore, accent colors and reading direction" width="160"/>
+
 </div>
 
 ## Download
