@@ -76,7 +76,7 @@ Files named as volumes (`Vol 3`, `v03`) update the volume count on AniList inste
 
 ## Building from source
 
-You need JDK 21, Gradle 9.3.1 and an Android SDK with platform 36.1. The repo has no Gradle wrapper, so use a system `gradle` or Android Studio.
+You need JDK 21, Gradle 9.9.0 and an Android SDK with platform 37.2. The repo has no Gradle wrapper, so use a system `gradle` or Android Studio.
 
 ```sh
 git clone https://github.com/Moon-Ecosystem/MoonReader.git

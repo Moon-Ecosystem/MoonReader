@@ -7,7 +7,7 @@ Guidance for AI coding agents working in this repo.
 Moon Reader (formerly MangaReader) is an offline Android reader for local `.cbz`/`.zip` comic archives, with optional AniList tracking (the only network use).
 
 - Kotlin, Jetpack Compose (Material 3), Room, Coil 2.7.
-- AGP 9.1, Gradle 9.3.1, minSdk 24, targetSdk 36.
+- AGP 9.5, Gradle 9.9.0, minSdk 24, targetSdk 36, compileSdk 37.2.
 - Single module: `app`. Package `com.example`; applicationId `com.aistudio.mangareader.kvmzqp`. The project started as an AI Studio export.
 - Don't rename the leftover `mangareader` identifiers: the applicationId, the `manga_reader_database` / `manga_reader_prefs` file names (renaming wipes user data).
 - Only ZIP-based archives (`.cbz`, `.zip`) can be read. `MangaScanner` also lists `.cbr`/`.rar`/`.7z` files in the library, but their pages can't be opened yet.
@@ -38,7 +38,7 @@ docs/                       V1_SPECIFICATION.md, CLEANUP_TODO.md (dead-code audi
 
 ## Build and test
 
-There is no `gradlew` in the repo, so use a system Gradle 9.3.1 with JDK 21 and an Android SDK that has platform 36.1.
+There is no `gradlew` in the repo, so use a system Gradle 9.9.0 with JDK 21 and an Android SDK that has platform 37.2.
 
 ```sh
 gradle :app:testDebugUnitTest                              # unit tests (CI runs these)
