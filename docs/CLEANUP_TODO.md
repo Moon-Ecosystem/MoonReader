@@ -47,6 +47,6 @@ Removing DAO queries doesn't change the database schema, so no Room migration is
 
 ## After cleaning up
 
-- `./gradlew :app:testDebugUnitTest` (no wrapper script in the repo: use a Gradle 9.9.0 install)
+- `./gradlew :app:testDebugUnitTest`
 - Release build with R8 (`:app:assembleRelease`) to make sure nothing removed was needed via reflection
 - Re-run `codegraph sync` and repeat the callers scan to catch anything newly orphaned

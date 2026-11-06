@@ -24,16 +24,14 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      # The repo has no gradlew script, so pin the version from gradle-wrapper.properties
+      # Caches Gradle; ./gradlew picks the version from gradle-wrapper.properties
       - uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: 9.9.0
 
-      - name: Install Android platform 36.1
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36.1" > /dev/null
+      - name: Install Android platform 37.2
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.2" > /dev/null
 
       - name: Unit tests
-        run: gradle :app:testDebugUnitTest
+        run: ./gradlew :app:testDebugUnitTest
 
       # Release signing reads KEYSTORE_PATH / STORE_PASSWORD / KEY_PASSWORD (key alias "upload")
       - name: Decode signing keystore
@@ -50,7 +48,7 @@ jobs:
           KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle :app:assembleRelease
+        run: ./gradlew :app:assembleRelease
 
       # Version tag: "Moon Reader 0.1" as the latest release; main push: a numbered pre-release build
       - name: Name the release

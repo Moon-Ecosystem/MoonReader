@@ -76,13 +76,13 @@ Files named as volumes (`Vol 3`, `v03`) update the volume count on AniList inste
 
 ## Building from source
 
-You need JDK 21, Gradle 9.9.0 and an Android SDK with platform 37.2. The repo has no Gradle wrapper, so use a system `gradle` or Android Studio.
+You need JDK 21 and an Android SDK with platform 37.2. The Gradle wrapper downloads the right Gradle version for you.
 
 ```sh
 git clone https://github.com/Moon-Ecosystem/MoonReader.git
 cd MoonReader
-gradle :app:testDebugUnitTest   # unit tests
-gradle :app:assembleDebug       # debug APK (needs debug.keystore at the repo root)
+./gradlew :app:testDebugUnitTest   # unit tests
+./gradlew :app:assembleDebug       # debug APK (needs debug.keystore at the repo root)
 ```
 
 Built with Kotlin, Jetpack Compose (Material 3), Room and Coil. Pages are read straight out of the archive by a small random-access ZIP reader.
