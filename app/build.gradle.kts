@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -10,7 +11,7 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk { version = release(37) { minorApiLevel = 2 } }
 
   defaultConfig {
     applicationId = "com.aistudio.mangareader.kvmzqp"
@@ -24,11 +25,16 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      // Env vars (CI) win; local builds fall back to signing.* in local.properties.
+      val local = Properties().apply {
+        rootProject.file("local.properties").takeIf { it.exists() }?.reader()?.use { load(it) }
+      }
+      val localPassword = local.getProperty("signing.storePasswordFile")?.let { file(it).readText().trim() }
+      val keystorePath = System.getenv("KEYSTORE_PATH") ?: local.getProperty("signing.storeFile") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      storePassword = System.getenv("STORE_PASSWORD") ?: localPassword
+      keyAlias = local.getProperty("signing.keyAlias") ?: "upload"
+      keyPassword = System.getenv("KEY_PASSWORD") ?: localPassword
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")

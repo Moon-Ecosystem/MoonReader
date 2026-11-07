@@ -7,7 +7,7 @@ Guidance for AI coding agents working in this repo.
 Moon Reader (formerly MangaReader) is an offline Android reader for local `.cbz`/`.zip` comic archives, with optional AniList tracking (the only network use).
 
 - Kotlin, Jetpack Compose (Material 3), Room, Coil 2.7.
-- AGP 9.1, Gradle 9.3.1, minSdk 24, targetSdk 36.
+- AGP 9.5, Gradle 9.9.0 (wrapper included), minSdk 24, targetSdk 36, compileSdk 37.2.
 - Single module: `app`. Package `com.example`; applicationId `com.aistudio.mangareader.kvmzqp`. The project started as an AI Studio export.
 - Don't rename the leftover `mangareader` identifiers: the applicationId, the `manga_reader_database` / `manga_reader_prefs` file names (renaming wipes user data).
 - Only ZIP-based archives (`.cbz`, `.zip`) can be read. `MangaScanner` also lists `.cbr`/`.rar`/`.7z` files in the library, but their pages can't be opened yet.
@@ -38,15 +38,31 @@ docs/                       V1_SPECIFICATION.md, CLEANUP_TODO.md (dead-code audi
 
 ## Build and test
 
-There is no `gradlew` in the repo, so use a system Gradle 9.3.1 with JDK 21 and an Android SDK that has platform 36.1.
+Use the Gradle wrapper with JDK 21 and an Android SDK that has platform 37.2. `./gradlew` downloads Gradle 9.9.0 itself, so no system Gradle is needed.
 
 ```sh
-gradle :app:testDebugUnitTest                              # unit tests (CI runs these)
-gradle :app:processDebugResources :app:compileDebugKotlin  # compile check
+./gradlew :app:testDebugUnitTest                              # unit tests (CI runs these)
+./gradlew :app:processDebugResources :app:compileDebugKotlin  # compile check
+./gradlew :app:assembleRelease                                # signed release APK
+```
+
+On this machine the JDK, SDK and Gradle home live in `~/.cache/mangareader-build`, so pass them in:
+
+```sh
+B=~/.cache/mangareader-build
+JAVA_HOME=$B/jdk ANDROID_HOME=$B/sdk GRADLE_USER_HOME=$B/gradle-home \
+  ./gradlew -q :app:testDebugUnitTest :app:assembleRelease
+```
+
+Install on the connected phone (it runs the release build, so use `-r` to keep its data):
+
+```sh
+adb devices                                                        # the phone is on wireless adb
+timeout 120 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
 - `:app:assembleDebug` needs `debug.keystore` at the repo root. It is not committed, so without it the build fails at `validateSigningDebug`. That failure is unrelated to code changes.
-- Release signing reads the `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` env vars (key alias `upload`).
+- Release signing reads the `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD` env vars (CI) and otherwise falls back to `signing.storeFile`, `signing.storePasswordFile` and `signing.keyAlias` in `local.properties` (local builds). The password file holds both the store and key password. Never print it.
 - Test results are written to `app/build/test-results/testDebugUnitTest/*.xml`.
 
 ## Git workflow
