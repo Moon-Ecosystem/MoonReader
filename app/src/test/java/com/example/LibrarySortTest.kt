@@ -40,6 +40,28 @@ class LibrarySortTest {
   }
 
   @Test
+  fun `archive time sorts ties by title and always puts missing times last`() {
+    val books = listOf(
+      manga("A"), manga("D").copy(archiveModifiedTime = 50),
+      manga("C").copy(archiveModifiedTime = 10), manga("B").copy(archiveModifiedTime = 50)
+    )
+    fun sorted(ascending: Boolean) = sortLibrary(books, LibrarySort.ARCHIVE_MODIFIED, ascending).map { it.id }
+    assertEquals(listOf("B", "D", "C", "A"), sorted(false))
+    assertEquals(listOf("C", "B", "D", "A"), sorted(true))
+  }
+
+  @Test
+  fun `custom order projects onto subsets and appends new titles`() {
+    val positions = mapOf("Tomie" to 0, "removed" to 1, "Gyo" to 2)
+    assertEquals(listOf("Tomie", "Gyo", "Remina", "uzumaki"),
+      sortLibrary(library, LibrarySort.CUSTOM, true, positions).map { it.id })
+    assertEquals(listOf("Gyo", "Remina", "uzumaki"),
+      sortLibrary(library.filter { it.id != "Tomie" }, LibrarySort.CUSTOM, true, positions).map { it.id })
+    assertEquals(listOf("Gyo", "Remina", "Tomie", "uzumaki"),
+      sortLibrary(library, LibrarySort.TITLE, true, positions).map { it.id })
+  }
+
+  @Test
   fun `status filters combine with favorites only`() {
     val lib = listOf(
       manga("uzumaki", lastRead = 100, chapters = 20, read = 20), // completed

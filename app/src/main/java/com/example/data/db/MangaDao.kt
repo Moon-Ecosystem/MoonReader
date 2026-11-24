@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -35,7 +36,27 @@ interface MangaDao {
     suspend fun updateFavorite(id: String, isFavorite: Boolean)
 
     @Query("UPDATE manga_library SET coverPath = :coverPath WHERE id = :id")
-    suspend fun updateCoverPath(id: String, coverPath: String)
+    suspend fun updateCoverPath(id: String, coverPath: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertNewManga(manga: List<MangaEntity>)
+
+    @Query("""UPDATE manga_library SET title = :title, folderUriString = :folderUri,
+        totalChapters = :chapters, archiveModifiedTime = :modified WHERE id = :id""")
+    suspend fun updateScannedMetadata(id: String, title: String, folderUri: String, chapters: Int, modified: Long)
+
+    @Query("UPDATE manga_library SET coverPath = :coverPath WHERE id = :id AND coverPath IS :expectedPath")
+    suspend fun updateScannedCover(id: String, expectedPath: String?, coverPath: String?): Int
+
+    @Transaction
+    suspend fun saveScannedManga(manga: List<MangaEntity>, previousCovers: Map<String, String?>) {
+        insertNewManga(manga)
+        for (entry in manga) {
+            updateScannedMetadata(entry.id, entry.title, entry.folderUriString, entry.totalChapters, entry.archiveModifiedTime)
+            val previousPath = previousCovers[entry.id]
+            if (previousPath != entry.coverPath) updateScannedCover(entry.id, previousPath, entry.coverPath)
+        }
+    }
 
     @Query("UPDATE manga_library SET lastReadChapterId = :chapterId, lastReadChapterTitle = :chapterTitle, lastReadPage = :page, lastReadTime = :time WHERE id = :mangaId")
     suspend fun updateLastRead(mangaId: String, chapterId: String, chapterTitle: String, page: Int, time: Long)

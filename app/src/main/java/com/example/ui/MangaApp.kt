@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.PinLockScreen
 import com.example.ui.screens.ChapterListScreen
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.LibraryReorderScreen
 import com.example.ui.screens.ReaderScreen
 import com.example.ui.screens.SearchScreen
 import com.example.ui.screens.SettingsScreen
@@ -77,6 +78,7 @@ import com.example.ui.theme.MoonReaderTheme
 private enum class AppScreen {
     LOCKED,
     MAIN_TABS,
+    LIBRARY_REORDER,
     MANGA_DETAILS,
     READER
 }
@@ -94,6 +96,7 @@ fun MangaApp(
     val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
     val selectedManga by viewModel.selectedManga.collectAsStateWithLifecycle()
     val selectedChapter by viewModel.selectedChapter.collectAsStateWithLifecycle()
+    val libraryReorderDraft by viewModel.libraryReorderDraft.collectAsStateWithLifecycle()
 
     // Re-lock app when it goes to background
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
@@ -125,19 +128,19 @@ fun MangaApp(
     }
 
     // Intercept hardware/system back button
-    BackHandler(enabled = isAppLocked || selectedChapter != null || selectedManga != null || currentTab != NavTab.HOME) {
-        if (isAppLocked) {
-            (context as? android.app.Activity)?.finish()
-        } else {
-            viewModel.handleBackPress()
-        }
-    }
-
     val currentScreen = when {
         isAppLocked -> AppScreen.LOCKED
         selectedChapter != null && selectedManga != null -> AppScreen.READER
         selectedManga != null -> AppScreen.MANGA_DETAILS
+        libraryReorderDraft != null -> AppScreen.LIBRARY_REORDER
         else -> AppScreen.MAIN_TABS
+    }
+    BackHandler(enabled = currentScreen != AppScreen.MAIN_TABS || currentTab != NavTab.HOME) {
+        when (currentScreen) {
+            AppScreen.LOCKED -> (context as? android.app.Activity)?.finish()
+            AppScreen.LIBRARY_REORDER -> viewModel.cancelLibraryReorder()
+            else -> viewModel.handleBackPress()
+        }
     }
 
     MoonReaderTheme(accentPreset = accentPreset) {
@@ -226,6 +229,9 @@ fun MangaApp(
                             )
                         }
                     }
+                    AppScreen.LIBRARY_REORDER -> {
+                        libraryReorderDraft?.let { LibraryReorderScreen(it, viewModel) }
+                    }
                     AppScreen.MAIN_TABS -> {
                         Scaffold(
                             bottomBar = {
@@ -304,7 +310,8 @@ fun MangaApp(
                                 when (tab) {
                                     NavTab.HOME -> HomeScreen(
                                         viewModel = viewModel,
-                                        onSelectFolderClick = { folderPickerLauncher.launch(null) }
+                                        onSelectFolderClick = { folderPickerLauncher.launch(null) },
+                                        active = currentScreen == AppScreen.MAIN_TABS && currentTab == NavTab.HOME
                                     )
                                     NavTab.STATISTICS -> StatisticsScreen(viewModel = viewModel)
                                     NavTab.SEARCH -> SearchScreen(viewModel = viewModel)

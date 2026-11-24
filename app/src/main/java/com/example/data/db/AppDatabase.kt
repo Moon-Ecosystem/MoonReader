@@ -15,9 +15,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MangaTrackEntity::class,
         CollectionEntity::class,
         CollectionMangaEntity::class,
-        ChapterOverrideEntity::class
+        ChapterOverrideEntity::class,
+        LibraryOrderEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,6 +27,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun collectionDao(): CollectionDao
     abstract fun backupDao(): BackupDao
+    abstract fun libraryOrderDao(): LibraryOrderDao
 
     companion object {
         @Volatile
@@ -107,6 +109,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `manga_library` ADD COLUMN `archiveModifiedTime` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE `library_custom_order` (`mangaId` TEXT NOT NULL PRIMARY KEY, " +
+                        "`position` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -114,7 +126,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "manga_reader_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

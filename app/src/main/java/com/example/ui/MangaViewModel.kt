@@ -31,6 +31,7 @@ import com.example.data.db.CollectionMangaEntity
 import com.example.data.tracking.AniListMedia
 import com.example.data.tracking.TrackingRepository
 import com.example.data.tracking.trackNumbers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,7 +52,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.File
 import java.time.LocalDate
 
 enum class NavTab {
@@ -75,15 +75,47 @@ internal fun filterLibrary(list: List<Manga>, status: LibraryStatus, favoritesOn
     }
 
 /** Orders the library by [sort]; ties (e.g. never-read manga under "Last read") fall back to title A–Z. */
-internal fun sortLibrary(list: List<Manga>, sort: LibrarySort, ascending: Boolean): List<Manga> {
+internal fun sortLibrary(
+    list: List<Manga>,
+    sort: LibrarySort,
+    ascending: Boolean,
+    customPositions: Map<String, Int> = emptyMap()
+): List<Manga> {
+    val byTitle = compareBy<Manga, String>(String.CASE_INSENSITIVE_ORDER) { it.title }
+    val byTitleAndId = byTitle.thenBy { it.id }
     val primary: Comparator<Manga> = when (sort) {
         LibrarySort.LAST_READ -> compareBy { it.lastReadTime }
-        LibrarySort.TITLE -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+        LibrarySort.TITLE -> byTitle
         LibrarySort.TOTAL_CHAPTERS -> compareBy { it.chapterCount }
         LibrarySort.UNREAD -> compareBy { (it.chapterCount - it.readChapterCount).coerceAtLeast(0) }
+        LibrarySort.ARCHIVE_MODIFIED -> {
+            val direction = if (ascending) naturalOrder<Long>() else reverseOrder()
+            val byTime = compareBy<Manga, Long?>(nullsLast(direction)) {
+                it.archiveModifiedTime.takeIf { time -> time > 0L }
+            }
+            return list.sortedWith(byTime.then(byTitleAndId))
+        }
+        LibrarySort.CUSTOM -> {
+            val bySavedPosition = compareBy<Manga> { customPositions[it.id] ?: Int.MAX_VALUE }
+            return list.sortedWith(bySavedPosition.then(byTitleAndId))
+        }
     }
     val directed = if (ascending) primary else primary.reversed()
-    return list.sortedWith(directed.thenBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+    return list.sortedWith(directed.then(byTitle))
+}
+
+internal data class LibraryReorderDraft(
+    val manga: List<Manga>,
+    val initialOrder: List<String>,
+    val folderUri: String?,
+    val confirmReplacement: Boolean,
+    val saving: Boolean = false
+) {
+    val hasChanges: Boolean get() = manga.indices.any { manga[it].id != initialOrder[it] }
+
+    fun matchesLibrary(current: List<Manga>, currentFolder: String?): Boolean =
+        currentFolder == folderUri && current.size == initialOrder.size &&
+            current.map { it.id }.toSet() == initialOrder.toSet()
 }
 
 /**
@@ -243,13 +275,22 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
-    private val _isScanning = MutableStateFlow(false)
+    private val _isScanning = MutableStateFlow(true)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
+    private val libraryScans = Mutex()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val collectionDao = database.collectionDao()
+    private val libraryOrderDao = database.libraryOrderDao()
+    private val homeLibraryOptions = MutableStateFlow(readHomeLibraryOptions(scrollGeneration = 0))
+    private val libraryScrollPositions = mutableMapOf<Long, HomeGridPosition>()
+    internal val customLibraryPositions: StateFlow<Map<String, Int>> = libraryOrderDao.observe()
+        .map { rows -> rows.associate { it.mangaId to it.position } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    private val _libraryReorderDraft = MutableStateFlow<LibraryReorderDraft?>(null)
+    internal val libraryReorderDraft = _libraryReorderDraft.asStateFlow()
 
     val collections: StateFlow<List<CollectionEntity>> = collectionDao.observeCollections()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -264,40 +305,41 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         if (list.any { it.id == id }) id else PreferencesManager.ALL_COLLECTIONS
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesManager.ALL_COLLECTIONS)
 
-    private val libraryFilterFlow = combine(
-        preferencesManager.libraryStatus,
-        preferencesManager.libraryFavoritesOnly
-    ) { status, favoritesOnly -> status to favoritesOnly }
-
     private val librarySortFlow = combine(
         preferencesManager.librarySort,
-        preferencesManager.librarySortAscending
-    ) { sort, ascending -> sort to ascending }
+        preferencesManager.librarySortAscending,
+        customLibraryPositions
+    ) { sort, ascending, positions -> Triple(sort, ascending, positions) }
 
     /**
      * Each home screen tab's series, filtered and sorted: [PreferencesManager.ALL_COLLECTIONS] and every collection
      * id. Every tab is ready so swiping shows the next tab's grid while it slides in; the sizes are the tab counts.
      */
-    val homeLibrary: StateFlow<Map<Long, List<Manga>>> = combine(
+    internal val homeLibrary: StateFlow<HomeLibraryState> = combine(
         libraryManga,
-        libraryFilterFlow,
+        homeLibraryOptions,
         collectionMembers,
         collections,
-        librarySortFlow
-    ) { library, (status, favoritesOnly), members, list, (sort, ascending) ->
-        val visible = sortLibrary(filterLibrary(library, status, favoritesOnly), sort, ascending)
-        mapOf(PreferencesManager.ALL_COLLECTIONS to visible) +
-            list.associate { c -> c.id to members[c.id].orEmpty().let { ids -> visible.filter { it.id in ids } } }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+        customLibraryPositions
+    ) { library, options, members, list, positions ->
+        val (status, favoritesOnly, sort, ascending) = options
+        val visible = sortLibrary(filterLibrary(library, status, favoritesOnly), sort, ascending, positions)
+        val tabs = mapOf(PreferencesManager.ALL_COLLECTIONS to visible) +
+            list.associate { collection ->
+                val ids = members[collection.id].orEmpty()
+                collection.id to visible.filter { it.id in ids }
+            }
+        HomeLibraryState(options, tabs)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeLibraryState(homeLibraryOptions.value))
 
     /** Search results: the whole library matching the query, sorted; collections and filters only narrow Home. */
     val filteredManga: StateFlow<List<Manga>> = combine(
         libraryManga,
         _searchQuery,
         librarySortFlow
-    ) { mangaList, query, (sort, ascending) ->
+    ) { mangaList, query, (sort, ascending, positions) ->
         val list = if (query.isBlank()) mangaList else mangaList.filter { it.title.contains(query, ignoreCase = true) }
-        sortLibrary(list, sort, ascending)
+        sortLibrary(list, sort, ascending, positions)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -354,12 +396,13 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Automatically check if library needs initial scanning
         viewModelScope.launch {
-            val uri = preferencesManager.folderUri.value
-            if (uri.isNullOrBlank()) {
-                // Pre-generate sample manga on first launch for immediate reading demo
-                repository.loadSampleManga()
-            } else {
-                scanLibrary()
+            performLibraryScan {
+                if (preferencesManager.folderUri.value.isNullOrBlank()) {
+                    // Pre-generate sample manga on first launch for immediate reading demo
+                    repository.loadSampleManga()
+                } else {
+                    repository.scanCurrentLibrary()
+                }
             }
             // Pages are read straight from archives: drop chapters extracted by older versions and any
             // leftover temp copy from a non-seekable provider
@@ -379,13 +422,40 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         _selectedChapter.value = null
     }
 
-    fun setLibraryStatus(status: LibraryStatus) =
-        preferencesManager.setLibraryFilter(status, preferencesManager.libraryFavoritesOnly.value)
+    private fun readHomeLibraryOptions(scrollGeneration: Int) = HomeLibraryOptions(
+        status = preferencesManager.libraryStatus.value,
+        favoritesOnly = preferencesManager.libraryFavoritesOnly.value,
+        sort = preferencesManager.librarySort.value,
+        ascending = preferencesManager.librarySortAscending.value,
+        scrollGeneration = scrollGeneration
+    )
+
+    private fun updateHomeLibraryOptions(resetScroll: Boolean = true) {
+        val generation = homeLibraryOptions.value.scrollGeneration
+        if (resetScroll) libraryScrollPositions.clear()
+        homeLibraryOptions.value = readHomeLibraryOptions(if (resetScroll) generation + 1 else generation)
+    }
+
+    internal fun libraryScrollPosition(tab: Long): HomeGridPosition? = libraryScrollPositions[tab]
+
+    internal fun saveLibraryScrollPosition(tab: Long, generation: Int, position: HomeGridPosition) {
+        if (generation == homeLibraryOptions.value.scrollGeneration) libraryScrollPositions[tab] = position
+    }
+
+    private fun setLibraryFilter(status: LibraryStatus, favoritesOnly: Boolean) {
+        if (status == preferencesManager.libraryStatus.value &&
+            favoritesOnly == preferencesManager.libraryFavoritesOnly.value
+        ) return
+        preferencesManager.setLibraryFilter(status, favoritesOnly)
+        updateHomeLibraryOptions()
+    }
+
+    fun setLibraryStatus(status: LibraryStatus) = setLibraryFilter(status, preferencesManager.libraryFavoritesOnly.value)
 
     fun setLibraryFavoritesOnly(favoritesOnly: Boolean) =
-        preferencesManager.setLibraryFilter(preferencesManager.libraryStatus.value, favoritesOnly)
+        setLibraryFilter(preferencesManager.libraryStatus.value, favoritesOnly)
 
-    fun resetLibraryFilter() = preferencesManager.setLibraryFilter(LibraryStatus.ALL, false)
+    fun resetLibraryFilter() = setLibraryFilter(LibraryStatus.ALL, false)
 
     // --- Collections ---
 
@@ -408,7 +478,10 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteCollection(id: Long) {
-        viewModelScope.launch { collectionDao.delete(id) }
+        viewModelScope.launch {
+            collectionDao.delete(id)
+            libraryScrollPositions.remove(id)
+        }
     }
 
     fun setInCollection(collectionId: Long, mangaId: String, member: Boolean) {
@@ -420,12 +493,77 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Picking the active sort flips its direction; a new one starts in its natural direction. */
     fun onLibrarySortSelected(sort: LibrarySort) {
+        if (sort == LibrarySort.CUSTOM) {
+            if (customLibraryPositions.value.isNotEmpty() && preferencesManager.librarySort.value != sort) {
+                preferencesManager.setLibrarySort(sort, true)
+                updateHomeLibraryOptions()
+            }
+            return
+        }
         val ascending = if (sort == preferencesManager.librarySort.value) {
             !preferencesManager.librarySortAscending.value
         } else {
             sort.ascendingByDefault
         }
         preferencesManager.setLibrarySort(sort, ascending)
+        updateHomeLibraryOptions()
+    }
+
+    internal fun beginLibraryReorder() {
+        if (isScanning.value || selectedCollection.value != PreferencesManager.ALL_COLLECTIONS ||
+            preferencesManager.libraryStatus.value != LibraryStatus.ALL || preferencesManager.libraryFavoritesOnly.value
+        ) return
+        val sort = preferencesManager.librarySort.value
+        val positions = customLibraryPositions.value
+        val manga = sortLibrary(libraryManga.value, sort, preferencesManager.librarySortAscending.value, positions)
+        if (manga.size < 2) return
+        _libraryReorderDraft.value = LibraryReorderDraft(
+            manga = manga,
+            initialOrder = manga.map { it.id },
+            folderUri = preferencesManager.folderUri.value,
+            confirmReplacement = sort != LibrarySort.CUSTOM && positions.isNotEmpty()
+        )
+    }
+
+    internal fun moveLibraryManga(mangaId: String, targetId: String): Boolean {
+        val draft = _libraryReorderDraft.value?.takeUnless { it.saving } ?: return false
+        val from = draft.manga.indexOfFirst { it.id == mangaId }
+        val to = draft.manga.indexOfFirst { it.id == targetId }
+        if (from < 0 || to < 0 || from == to) return false
+        val moved = draft.manga.toMutableList().apply { add(to, removeAt(from)) }
+        _libraryReorderDraft.value = draft.copy(manga = moved)
+        return true
+    }
+
+    internal fun cancelLibraryReorder() {
+        if (_libraryReorderDraft.value?.saving == false) _libraryReorderDraft.value = null
+    }
+
+    internal fun saveLibraryReorder() {
+        val draft = _libraryReorderDraft.value ?: return
+        if (draft.saving || !draft.hasChanges || isScanning.value ||
+            !draft.matchesLibrary(libraryManga.value, preferencesManager.folderUri.value)
+        ) return
+        _libraryReorderDraft.value = draft.copy(saving = true)
+        viewModelScope.launch {
+            try {
+                val ids = draft.manga.map { it.id }
+                libraryOrderDao.replace(ids)
+                // Wait for Room to publish the saved order before switching the sort or leaving the editor.
+                customLibraryPositions.first { positions ->
+                    positions.size == ids.size && ids.withIndex().all { (index, id) -> positions[id] == index }
+                }
+                preferencesManager.setLibrarySort(LibrarySort.CUSTOM, true)
+                updateHomeLibraryOptions(resetScroll = false)
+                _libraryReorderDraft.value = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e("MangaViewModel", "Failed to save library order", e)
+                _libraryReorderDraft.value = draft
+                toast("Couldn't save library order. Try again.")
+            }
+        }
     }
 
     fun setSearchQuery(query: String) {
@@ -731,29 +869,28 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun scanLibrary() {
-        viewModelScope.launch {
+    private suspend fun performLibraryScan(scan: suspend () -> Unit) {
+        libraryScans.withLock {
+            val previousFolder = preferencesManager.folderUri.value
             _isScanning.value = true
-            repository.scanCurrentLibrary()
-            _isScanning.value = false
+            try {
+                scan()
+            } finally {
+                if (preferencesManager.folderUri.value != previousFolder) updateHomeLibraryOptions()
+                _isScanning.value = false
+            }
         }
     }
 
-    fun setFolderUri(uriString: String) {
-        viewModelScope.launch {
-            _isScanning.value = true
-            repository.setLibraryFolder(uriString)
-            _isScanning.value = false
-        }
+    private fun runLibraryScan(scan: suspend () -> Unit) {
+        viewModelScope.launch { performLibraryScan(scan) }
     }
 
-    fun loadSampleManga() {
-        viewModelScope.launch {
-            _isScanning.value = true
-            repository.loadSampleManga()
-            _isScanning.value = false
-        }
-    }
+    fun scanLibrary() = runLibraryScan { repository.scanCurrentLibrary() }
+
+    fun setFolderUri(uriString: String) = runLibraryScan { repository.setLibraryFolder(uriString) }
+
+    fun loadSampleManga() = runLibraryScan { repository.loadSampleManga() }
 
     fun toggleFavorite(manga: Manga) {
         viewModelScope.launch {
@@ -957,58 +1094,28 @@ class MangaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun hasPin(): Boolean = preferencesManager.hasPin()
 
-    fun setCustomCoverFromUri(context: android.content.Context, mangaId: String, imageUri: android.net.Uri) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val customCoversDir = File(context.filesDir, "custom_covers")
-                customCoversDir.mkdirs()
-                val destFile = File(customCoversDir, "cover_${mangaId.hashCode()}_${System.currentTimeMillis()}.jpg")
-                val scaled = com.example.data.storage.CoverImages.saveScaled(
-                    { context.contentResolver.openInputStream(imageUri) }, destFile
-                )
-                if (!scaled) {
-                    context.contentResolver.openInputStream(imageUri)?.use { input ->
-                        java.io.FileOutputStream(destFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-                if (destFile.exists() && destFile.length() > 0) {
-                    repository.updateMangaCover(mangaId, destFile.absolutePath)
-                    _selectedManga.value?.let { current ->
-                        if (current.id == mangaId) {
-                            _selectedManga.value = current.copy(coverPath = destFile.absolutePath)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("MangaViewModel", "Failed to save custom cover from URI", e)
-            }
-        }
+    fun setCustomCoverFromUri(mangaId: String, imageUri: android.net.Uri) = saveMangaCover {
+        repository.saveCustomCover(mangaId) { getApplication<Application>().contentResolver.openInputStream(imageUri) }
     }
 
-    fun setCustomCoverFromPage(mangaId: String, page: PageRef) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val bytes = repository.readPageBytes(page) ?: return@launch
-                val destFile = File(
-                    File(getApplication<Application>().filesDir, "custom_covers"),
-                    "cover_${mangaId.hashCode()}_${System.currentTimeMillis()}.jpg"
-                )
-                // Scaled JPEG normally; the original bytes if this device can't decode the format
-                if (!com.example.data.storage.CoverImages.saveScaled({ bytes.inputStream() }, destFile)) {
-                    destFile.parentFile?.mkdirs()
-                    destFile.writeBytes(bytes)
-                }
-                repository.updateMangaCover(mangaId, destFile.absolutePath)
-                _selectedManga.value?.let { current ->
-                    if (current.id == mangaId) {
-                        _selectedManga.value = current.copy(coverPath = destFile.absolutePath)
-                    }
-                }
+    fun setCustomCoverFromPage(mangaId: String, page: PageRef) = saveMangaCover {
+        val bytes = repository.readPageBytes(page) ?: return@saveMangaCover false
+        repository.saveCustomCover(mangaId) { bytes.inputStream() }
+    }
+
+    private val coverSaves = Mutex()
+
+    private fun saveMangaCover(save: suspend () -> Boolean) {
+        viewModelScope.launch {
+            val saved = try {
+                coverSaves.withLock { save() }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                android.util.Log.e("MangaViewModel", "Failed to set custom cover from page", e)
+                android.util.Log.e("MangaViewModel", "Failed to save custom cover", e)
+                false
             }
+            if (!saved) toast("Couldn't save the cover. Try again.")
         }
     }
 

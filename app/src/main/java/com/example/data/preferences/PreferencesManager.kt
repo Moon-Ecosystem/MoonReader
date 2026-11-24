@@ -3,6 +3,7 @@ package com.example.data.preferences
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.data.AccentPreset
+import com.example.data.LibraryGridLayout
 import com.example.data.LibrarySort
 import com.example.data.LibraryStatus
 import com.example.data.ReaderFitMode
@@ -89,6 +90,17 @@ class PreferencesManager(context: Context) {
         prefs.getBoolean(KEY_LIBRARY_SORT_ASCENDING, _librarySort.value.ascendingByDefault)
     )
     val librarySortAscending: StateFlow<Boolean> = _librarySortAscending.asStateFlow()
+
+    private val _libraryGridLayout = MutableStateFlow(
+        LibraryGridLayout.entries.firstOrNull { it.name == prefs.all[KEY_LIBRARY_GRID_LAYOUT] }
+            ?: LibraryGridLayout.AUTOMATIC
+    )
+    val libraryGridLayout: StateFlow<LibraryGridLayout> = _libraryGridLayout.asStateFlow()
+
+    fun setLibraryGridLayout(layout: LibraryGridLayout) {
+        prefs.edit().putString(KEY_LIBRARY_GRID_LAYOUT, layout.name).apply()
+        _libraryGridLayout.value = layout
+    }
 
     private val _libraryStatus = MutableStateFlow(
         LibraryStatus.entries.find { it.name == prefs.getString(KEY_LIBRARY_STATUS, null) } ?: LibraryStatus.ALL
@@ -257,8 +269,9 @@ class PreferencesManager(context: Context) {
         private const val KEY_READING_DIR = "pref_reading_direction"
         private const val KEY_READER_THEME = "pref_reader_theme"
         private const val KEY_READER_FIT = "pref_reader_fit_mode"
-        private const val KEY_LIBRARY_SORT = "pref_library_sort"
-        private const val KEY_LIBRARY_SORT_ASCENDING = "pref_library_sort_ascending"
+        internal const val KEY_LIBRARY_SORT = "pref_library_sort"
+        internal const val KEY_LIBRARY_SORT_ASCENDING = "pref_library_sort_ascending"
+        private const val KEY_LIBRARY_GRID_LAYOUT = "pref_library_grid_layout"
         private const val KEY_LIBRARY_STATUS = "pref_library_status"
         private const val KEY_LIBRARY_FAVORITES_ONLY = "pref_library_favorites_only"
         private const val KEY_LIBRARY_COLLECTION = "pref_library_collection"

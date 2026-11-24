@@ -86,7 +86,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,7 +111,6 @@ fun ChapterListScreen(
     viewModel: MangaViewModel,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
 
     BackHandler {
         viewModel.closeManga()
@@ -157,7 +155,7 @@ fun ChapterListScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.setCustomCoverFromUri(context, manga.id, uri)
+            viewModel.setCustomCoverFromUri(manga.id, uri)
         }
     }
 

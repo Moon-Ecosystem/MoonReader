@@ -2,12 +2,14 @@ package com.example.data.backup
 
 import android.content.Context
 import com.example.BuildConfig
+import com.example.data.LibrarySort
 import com.example.data.db.BackupDao
 import com.example.data.db.BackupData
 import com.example.data.db.ChapterOverrideEntity
 import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.CollectionEntity
 import com.example.data.db.CollectionMangaEntity
+import com.example.data.db.LibraryOrderEntity
 import com.example.data.db.MangaEntity
 import com.example.data.db.MangaTrackEntity
 import com.example.data.db.ReadingSessionEntity
@@ -113,10 +115,11 @@ class BackupRepository(private val context: Context, private val dao: BackupDao)
                 collectionManga = data.collectionManga.map { it.copy(mangaId = id(it.mangaId)) },
                 // Offline progress from the backup could overwrite newer AniList data; a refresh pulls the current state
                 tracks = data.tracks.map { it.copy(mangaId = id(it.mangaId), pendingSync = false) },
-                chapterOverrides = data.chapterOverrides.map { it.copy(chapterId = id(it.chapterId), mangaId = id(it.mangaId)) }
+                chapterOverrides = data.chapterOverrides.map { it.copy(chapterId = id(it.chapterId), mangaId = id(it.mangaId)) },
+                customOrder = data.customOrder.map { it.copy(mangaId = id(it.mangaId)) }
             )
         )
-        settings?.let(::applySettings)
+        applySettings(settings, data.customOrder.isNotEmpty())
     }
 
     private fun customCoversDir() = File(context.filesDir, "custom_covers")
@@ -168,11 +171,12 @@ class BackupRepository(private val context: Context, private val dao: BackupDao)
         return json
     }
 
-    private fun applySettings(json: JSONObject) {
-        val editor = prefs().edit()
-        for (key in json.keys()) {
+    private fun applySettings(json: JSONObject?, hasCustomOrder: Boolean) {
+        val preferences = prefs()
+        val editor = preferences.edit()
+        for (key in json?.keys()?.asSequence().orEmpty()) {
             if (key in PreferencesManager.BACKUP_EXCLUDED_KEYS) continue
-            val entry = json.optJSONObject(key) ?: continue
+            val entry = json?.optJSONObject(key) ?: continue
             when (entry.optString("type")) {
                 "boolean" -> editor.putBoolean(key, entry.getBoolean("value"))
                 "int" -> editor.putInt(key, entry.getInt("value"))
@@ -180,6 +184,12 @@ class BackupRepository(private val context: Context, private val dao: BackupDao)
                 "float" -> editor.putFloat(key, entry.getDouble("value").toFloat())
                 "string" -> editor.putString(key, entry.getString("value"))
             }
+        }
+        val sortKey = PreferencesManager.KEY_LIBRARY_SORT
+        val sort = json?.optJSONObject(sortKey)?.optString("value") ?: preferences.getString(sortKey, null)
+        if (!hasCustomOrder && sort == LibrarySort.CUSTOM.name) {
+            editor.putString(sortKey, LibrarySort.LAST_READ.name)
+            editor.putBoolean(PreferencesManager.KEY_LIBRARY_SORT_ASCENDING, LibrarySort.LAST_READ.ascendingByDefault)
         }
         editor.commit()
     }
@@ -231,6 +241,7 @@ private fun libraryToJson(data: BackupData) = JSONObject()
             .put("lastReadPage", it.lastReadPage)
             .put("lastReadTime", it.lastReadTime)
             .put("totalChapters", it.totalChapters)
+            .put("archiveModifiedTime", it.archiveModifiedTime)
     }))
     .put("chapterProgress", JSONArray(data.chapterProgress.map {
         JSONObject()
@@ -287,6 +298,7 @@ private fun libraryToJson(data: BackupData) = JSONObject()
             .put("customTitle", it.customTitle)
             .put("isHidden", it.isHidden)
     }))
+    .put("customOrder", JSONArray(data.customOrder.map { it.mangaId }))
 
 private fun libraryFromJson(json: JSONObject) = BackupData(
     manga = json.getJSONArray("manga").mapObjects {
@@ -300,7 +312,8 @@ private fun libraryFromJson(json: JSONObject) = BackupData(
             lastReadChapterTitle = it.stringOrNull("lastReadChapterTitle"),
             lastReadPage = it.optInt("lastReadPage"),
             lastReadTime = it.optLong("lastReadTime"),
-            totalChapters = it.optInt("totalChapters")
+            totalChapters = it.optInt("totalChapters"),
+            archiveModifiedTime = it.optLong("archiveModifiedTime").coerceAtLeast(0L)
         )
     },
     chapterProgress = json.getJSONArray("chapterProgress").mapObjects {
@@ -362,5 +375,8 @@ private fun libraryFromJson(json: JSONObject) = BackupData(
             customTitle = it.stringOrNull("customTitle"),
             isHidden = it.optBoolean("isHidden")
         )
+    }.orEmpty(),
+    customOrder = json.optJSONArray("customOrder")?.let { ids ->
+        List(ids.length()) { index -> LibraryOrderEntity(ids.getString(index), index) }
     }.orEmpty()
 )

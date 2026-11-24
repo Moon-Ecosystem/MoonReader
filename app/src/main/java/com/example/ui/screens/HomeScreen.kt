@@ -18,6 +18,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,12 +33,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import com.example.ui.components.stableStatusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,6 +51,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.FolderOpen
@@ -59,6 +62,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,6 +73,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -84,12 +89,14 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.material3.RadioButton
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -104,6 +111,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -114,11 +122,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.R
+import com.example.data.LibraryGridLayout
 import com.example.data.LibrarySort
 import com.example.data.LibraryStatus
 import com.example.data.Manga
 import com.example.data.db.CollectionEntity
 import com.example.data.preferences.PreferencesManager
+import com.example.ui.HomeGridAnchor
+import com.example.ui.HomeGridPosition
+import com.example.ui.HomeLibraryOptions
 import com.example.ui.MangaViewModel
 import com.example.ui.NavTab
 import com.example.ui.components.CollectionNameDialog
@@ -136,13 +148,14 @@ private const val NEW_COLLECTION_ONLY = ""
 fun HomeScreen(
     viewModel: MangaViewModel,
     onSelectFolderClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    active: Boolean = true
 ) {
     val homeLibrary by viewModel.homeLibrary.collectAsStateWithLifecycle()
     val totalLibraryManga by viewModel.libraryManga.collectAsStateWithLifecycle(emptyList())
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
-    val libraryStatus by viewModel.preferencesManager.libraryStatus.collectAsStateWithLifecycle()
-    val favoritesOnly by viewModel.preferencesManager.libraryFavoritesOnly.collectAsStateWithLifecycle()
+    val (libraryStatus, favoritesOnly, librarySort, librarySortAscending) = homeLibrary.options
+    val gridLayout by viewModel.preferencesManager.libraryGridLayout.collectAsStateWithLifecycle()
     val collections by viewModel.collections.collectAsStateWithLifecycle()
     val collectionMembers by viewModel.collectionMembers.collectAsStateWithLifecycle()
     val selectedCollection by viewModel.selectedCollection.collectAsStateWithLifecycle()
@@ -202,8 +215,7 @@ fun HomeScreen(
     }
     val continueManga by viewModel.continueReadingManga.collectAsStateWithLifecycle()
     val folderUri by viewModel.preferencesManager.folderUri.collectAsStateWithLifecycle()
-    val librarySort by viewModel.preferencesManager.librarySort.collectAsStateWithLifecycle()
-    val librarySortAscending by viewModel.preferencesManager.librarySortAscending.collectAsStateWithLifecycle()
+    val customPositions by viewModel.customLibraryPositions.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -255,9 +267,15 @@ fun HomeScreen(
                             favoritesOnly = favoritesOnly,
                             sort = librarySort,
                             ascending = librarySortAscending,
+                            gridLayout = gridLayout,
+                            hasCustomOrder = customPositions.isNotEmpty(),
+                            canReorder = !isScanning && selectedCollection == PreferencesManager.ALL_COLLECTIONS &&
+                                libraryStatus == LibraryStatus.ALL && !favoritesOnly && totalLibraryManga.size > 1,
                             onStatus = viewModel::setLibraryStatus,
                             onFavoritesOnly = viewModel::setLibraryFavoritesOnly,
-                            onSort = viewModel::onLibrarySortSelected
+                            onSort = viewModel::onLibrarySortSelected,
+                            onGridLayout = viewModel.preferencesManager::setLibraryGridLayout,
+                            onReorder = viewModel::beginLibraryReorder
                         )
                         IconButton(
                             onClick = { viewModel.selectTab(NavTab.SEARCH) },
@@ -397,7 +415,7 @@ fun HomeScreen(
                         // settles; the settled page is saved above
                         selected = tabIds.getOrNull(pagerState.targetPage) ?: selectedCollection,
                         pagerPosition = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
-                        counts = homeLibrary.mapValues { it.value.size },
+                        counts = homeLibrary.tabs.mapValues { it.value.size },
                         onSelect = viewModel::selectCollection,
                         onCreate = { newCollectionFor = NEW_COLLECTION_ONLY },
                         onRename = { renamingCollection = it },
@@ -416,47 +434,22 @@ fun HomeScreen(
                         onRefresh = { viewModel.scanLibrary() },
                         modifier = Modifier.fillMaxSize()
                     ) {
-                    HorizontalPager(
-                        state = pagerState,
-                        key = { page -> tabIds.getOrElse(page) { page.toLong() } },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("collection_pager")
-                    ) { page ->
-                    val tabId = tabIds.getOrElse(page) { PreferencesManager.ALL_COLLECTIONS }
-                    val mangaList = homeLibrary[tabId].orEmpty()
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 108.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("manga_grid")
-                    ) {
-                        // Manga grid, or why it's empty
-                        if (mangaList.isEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                EmptyFilterCard(
-                                    status = libraryStatus,
-                                    favoritesOnly = favoritesOnly,
-                                    inCollection = tabId != PreferencesManager.ALL_COLLECTIONS,
-                                    onResetFilter = viewModel::resetLibraryFilter
-                                )
-                            }
-                        } else {
-                            items(mangaList, key = { it.id }) { manga ->
-                                ModernMangaCard(
-                                    manga = manga,
-                                    onClick = { viewModel.selectManga(manga) },
-                                    onMarkRead = { viewModel.markMangaRead(manga, it) },
-                                    onToggleFavorite = { viewModel.toggleFavorite(manga) },
-                                    onEditCollections = { pickingCollectionsFor = manga }
-                                )
-                            }
+                        HorizontalPager(
+                            state = pagerState,
+                            key = { page -> tabIds.getOrElse(page) { page.toLong() } },
+                            modifier = Modifier.fillMaxSize().testTag("collection_pager")
+                        ) { page ->
+                            val tabId = tabIds.getOrElse(page) { PreferencesManager.ALL_COLLECTIONS }
+                            HomeMangaGrid(
+                                tabId = tabId,
+                                mangaList = homeLibrary[tabId].orEmpty(),
+                                options = homeLibrary.options,
+                                gridLayout = gridLayout,
+                                active = active && pagerState.settledPage == page,
+                                viewModel = viewModel,
+                                onEditCollections = { pickingCollectionsFor = it }
+                            )
                         }
-                    }
-                    }
                     }
                 }
             }
@@ -485,6 +478,67 @@ fun HomeScreen(
     }
 }
 
+@Composable
+private fun HomeMangaGrid(
+    tabId: Long,
+    mangaList: List<Manga>,
+    options: HomeLibraryOptions,
+    gridLayout: LibraryGridLayout,
+    active: Boolean,
+    viewModel: MangaViewModel,
+    onEditCollections: (Manga) -> Unit
+) {
+    val generation = options.scrollGeneration
+    key(tabId, generation, gridLayout, mangaList.isEmpty()) {
+        val gridState = remember {
+            val (index, offset) = viewModel.libraryScrollPosition(tabId)?.restore(mangaList, gridLayout) ?: (0 to 0)
+            LazyGridState(index, offset)
+        }
+        LaunchedEffect(active, gridState) {
+            if (active && mangaList.isNotEmpty()) {
+                snapshotFlow { gridState.homePosition(gridLayout) }.collect { position ->
+                    position?.let { viewModel.saveLibraryScrollPosition(tabId, generation, it) }
+                }
+            }
+        }
+        LazyVerticalGrid(
+            columns = gridLayout.cells,
+            state = gridState,
+            contentPadding = PaddingValues(horizontal = gridLayout.horizontalPadding, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(gridLayout.columnSpacing),
+            verticalArrangement = Arrangement.spacedBy(gridLayout.rowSpacing),
+            modifier = Modifier.fillMaxSize().testTag("manga_grid")
+        ) {
+            if (mangaList.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyFilterCard(
+                        status = options.status,
+                        favoritesOnly = options.favoritesOnly,
+                        inCollection = tabId != PreferencesManager.ALL_COLLECTIONS,
+                        onResetFilter = viewModel::resetLibraryFilter
+                    )
+                }
+            } else {
+                items(mangaList, key = { it.id }) { manga ->
+                    ModernMangaCard(
+                        manga = manga,
+                        compact = gridLayout.columns != null,
+                        onClick = {
+                            gridState.homePosition(gridLayout)?.let {
+                                viewModel.saveLibraryScrollPosition(tabId, generation, it)
+                            }
+                            viewModel.selectManga(manga)
+                        },
+                        onMarkRead = { viewModel.markMangaRead(manga, it) },
+                        onToggleFavorite = { viewModel.toggleFavorite(manga) },
+                        onEditCollections = { onEditCollections(manga) }
+                    )
+                }
+            }
+        }
+    }
+}
+
 /**
  * One menu for what the library shows: a status (one of) plus favorites only, then the sort order.
  */
@@ -494,11 +548,17 @@ private fun LibraryViewButton(
     favoritesOnly: Boolean,
     sort: LibrarySort,
     ascending: Boolean,
+    gridLayout: LibraryGridLayout,
+    hasCustomOrder: Boolean,
+    canReorder: Boolean,
     onStatus: (LibraryStatus) -> Unit,
     onFavoritesOnly: (Boolean) -> Unit,
-    onSort: (LibrarySort) -> Unit
+    onSort: (LibrarySort) -> Unit,
+    onGridLayout: (LibraryGridLayout) -> Unit,
+    onReorder: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var showGridLayout by remember { mutableStateOf(false) }
     val filtered = status != LibraryStatus.ALL || favoritesOnly
     Box {
         IconButton(
@@ -539,16 +599,79 @@ private fun LibraryViewButton(
                 VerticalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 Column(modifier = Modifier.width(IntrinsicSize.Max)) {
                     MenuSectionLabel("Sort by")
-                    LibrarySortOptions(sort, ascending, onSort)
+                    LibrarySortOptions(sort, ascending, hasCustomOrder, onSort)
+                    if (canReorder) {
+                        DropdownMenuItem(
+                            text = { Text("Reorder library") },
+                            onClick = {
+                                expanded = false
+                                onReorder()
+                            },
+                            modifier = Modifier.testTag("home_reorder_library")
+                        )
+                    }
                 }
             }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Grid layout") },
+                trailingIcon = { Text(gridLayout.label, style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    expanded = false
+                    showGridLayout = true
+                },
+                modifier = Modifier.testTag("home_grid_layout")
+            )
         }
+    }
+    if (showGridLayout) {
+        AlertDialog(
+            onDismissRequest = { showGridLayout = false },
+            title = { Text("Grid layout") },
+            text = {
+                Column {
+                    LibraryGridLayout.entries.forEach { option ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(48.dp).selectable(
+                                selected = option == gridLayout,
+                                role = Role.RadioButton,
+                                onClick = {
+                                    onGridLayout(option)
+                                    showGridLayout = false
+                                }
+                            ).testTag("home_grid_layout_${option.name}"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            RadioButton(selected = option == gridLayout, onClick = null)
+                            Text(option.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showGridLayout = false }) { Text("Cancel") } }
+        )
     }
 }
 
+private fun LazyGridState.homePosition(layout: LibraryGridLayout): HomeGridPosition? {
+    val firstIndex = firstVisibleItemIndex
+    val visible = layoutInfo.visibleItemsInfo.filter { it.index >= firstIndex && it.row >= 0 && it.key is String }
+    val firstRow = visible.firstOrNull()?.row ?: return null
+    val anchors = visible.takeWhile { it.row <= firstRow + 1 }.map { item ->
+        HomeGridAnchor(item.key as String, item.index, if (item.row == firstRow) firstVisibleItemScrollOffset else 0)
+    }
+    return HomeGridPosition(layout, firstIndex, anchors)
+}
+
 @Composable
-private fun LibrarySortOptions(sort: LibrarySort, ascending: Boolean, onSort: (LibrarySort) -> Unit) {
-    LibrarySort.entries.forEach { option ->
+private fun LibrarySortOptions(
+    sort: LibrarySort,
+    ascending: Boolean,
+    hasCustomOrder: Boolean,
+    onSort: (LibrarySort) -> Unit
+) {
+    LibrarySort.entries.filter { it != LibrarySort.CUSTOM || hasCustomOrder }.forEach { option ->
         val active = option == sort
         DropdownMenuItem(
             text = {
@@ -562,8 +685,16 @@ private fun LibrarySortOptions(sort: LibrarySort, ascending: Boolean, onSort: (L
             trailingIcon = if (active) {
                 {
                     Icon(
-                        imageVector = if (ascending) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                        contentDescription = if (ascending) "Ascending" else "Descending",
+                        imageVector = when {
+                            option == LibrarySort.CUSTOM -> Icons.Default.Check
+                            ascending -> Icons.Default.ArrowUpward
+                            else -> Icons.Default.ArrowDownward
+                        },
+                        contentDescription = when {
+                            option == LibrarySort.CUSTOM -> "Selected"
+                            ascending -> "Ascending"
+                            else -> "Descending"
+                        },
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -739,6 +870,7 @@ private fun EmptyFilterCard(
 @Composable
 private fun ModernMangaCard(
     manga: Manga,
+    compact: Boolean,
     onClick: () -> Unit,
     onMarkRead: (Boolean) -> Unit,
     onToggleFavorite: () -> Unit,
@@ -783,91 +915,7 @@ private fun ModernMangaCard(
                 )
                 .testTag("manga_card_${manga.id}")
         ) {
-            // Cover Box with 3:4 Aspect Ratio; outlined in the accent color while its menu is open
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(0.72f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                    .then(
-                        if (showMenu) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
-                        else Modifier
-                    )
-            ) {
-                if (!manga.coverPath.isNullOrBlank()) {
-                    AsyncImage(
-                        model = File(manga.coverPath),
-                        contentDescription = "Cover for ${manga.title}",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoStories,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-                }
-
-                // Top gradient overlay for contrast
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(32.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent)
-                            )
-                        )
-                )
-
-                // Favorite indicator tag if bookmarked
-                if (manga.isFavorite) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFFDC2626).copy(alpha = 0.9f),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .size(20.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "♥",
-                                fontSize = 11.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Manga Title
-            Text(
-                text = manga.title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            // Chapter Count Badge
-            Text(
-                text = if (manga.chapterCount > 0) "Ch. ${manga.chapterCount}" else "Chapters",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
-            )
+            MangaCardContent(manga, outlined = showMenu, compact = compact)
         }
 
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -894,4 +942,101 @@ private fun ModernMangaCard(
         }
     }
     }
+}
+
+@Composable
+internal fun MangaCardContent(
+    manga: Manga,
+    outlined: Boolean = false,
+    compact: Boolean = false,
+    coverOverlay: @Composable BoxScope.() -> Unit = {}
+) {
+    // Cover Box with 3:4 Aspect Ratio; outlined in the accent color while its menu is open
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.72f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .then(
+                if (outlined) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                else Modifier
+            )
+    ) {
+        if (!manga.coverPath.isNullOrBlank()) {
+            AsyncImage(
+                model = File(manga.coverPath),
+                contentDescription = "Cover for ${manga.title}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoStories,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+
+        // Top gradient overlay for contrast
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(32.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent)
+                    )
+                )
+        )
+
+        // Favorite indicator tag if bookmarked
+        if (manga.isFavorite) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFFDC2626).copy(alpha = 0.9f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(20.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "♥",
+                        fontSize = 11.sp,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+        coverOverlay()
+    }
+
+    Spacer(modifier = Modifier.height(if (compact) 3.dp else 6.dp))
+
+    // Manga Title
+    Text(
+        text = manga.title,
+        style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+
+    // Chapter Count Badge
+    Text(
+        text = if (manga.chapterCount > 0) "Ch. ${manga.chapterCount}" else "Chapters",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = if (compact) 10.sp else 12.sp,
+        maxLines = if (compact) 1 else Int.MAX_VALUE,
+        overflow = TextOverflow.Ellipsis
+    )
 }

@@ -224,35 +224,54 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `migration 3 to 5 adds collections and chapter changes without touching existing data`() = kotlinx.coroutines.runBlocking {
+  fun `migration 3 to 6 adds collections chapter changes and library order without losing data`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val name = "migration_3_4_test.db"
+    val name = "migration_3_6_test.db"
     context.deleteDatabase(name)
     fun open() = androidx.room.Room.databaseBuilder(context, com.example.data.db.AppDatabase::class.java, name)
       .addMigrations(
         com.example.data.db.AppDatabase.MIGRATION_1_2,
         com.example.data.db.AppDatabase.MIGRATION_2_3,
         com.example.data.db.AppDatabase.MIGRATION_3_4,
-        com.example.data.db.AppDatabase.MIGRATION_4_5
+        com.example.data.db.AppDatabase.MIGRATION_4_5,
+        com.example.data.db.AppDatabase.MIGRATION_5_6
       )
       .allowMainThreadQueries()
       .build() // no destructive fallback: a schema mismatch must fail here, not wipe data
 
-    // A version 3 database: today's schema minus the collection and chapter override tables, with a library row in it
+    // Recreate a version 3 database with an existing library row.
     open().apply {
       mangaDao().insertOrUpdateManga(com.example.data.db.MangaEntity(id = "m1", title = "Kept", folderUriString = "m1"))
       openHelper.writableDatabase.apply {
         execSQL("DROP TABLE collection_manga")
         execSQL("DROP TABLE collections")
         execSQL("DROP TABLE chapter_overrides")
+        execSQL("DROP TABLE library_custom_order")
+        execSQL("ALTER TABLE manga_library RENAME TO manga_library_v6")
+        execSQL("""
+          CREATE TABLE manga_library (
+            id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, folderUriString TEXT NOT NULL,
+            coverPath TEXT, isFavorite INTEGER NOT NULL, lastReadChapterId TEXT, lastReadChapterTitle TEXT,
+            lastReadPage INTEGER NOT NULL, lastReadTime INTEGER NOT NULL, totalChapters INTEGER NOT NULL
+          )
+        """.trimIndent())
+        execSQL("""
+          INSERT INTO manga_library SELECT id, title, folderUriString, coverPath, isFavorite, lastReadChapterId,
+            lastReadChapterTitle, lastReadPage, lastReadTime, totalChapters FROM manga_library_v6
+        """.trimIndent())
+        execSQL("DROP TABLE manga_library_v6")
         execSQL("PRAGMA user_version = 3")
       }
       close()
     }
 
-    // Reopening runs MIGRATION_3_4 and MIGRATION_4_5, and Room validates the tables they create
+    // Room runs the full migration chain and validates the resulting schema.
     val db = open()
     assertEquals("Kept", db.mangaDao().getMangaByIdOnce("m1")!!.title)
+    assertEquals(0L, db.mangaDao().getMangaByIdOnce("m1")!!.archiveModifiedTime)
+    assertTrue(db.libraryOrderDao().observe().first().isEmpty())
+    db.libraryOrderDao().replace(listOf("m1"))
+    assertEquals(listOf("m1"), db.libraryOrderDao().observe().first().map { it.mangaId })
     db.mangaDao().saveChapterOverride(com.example.data.db.ChapterOverrideEntity("ch1", "m1", "Renamed", isHidden = true))
     assertEquals(
       "Renamed" to true,

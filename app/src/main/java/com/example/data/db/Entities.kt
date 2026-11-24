@@ -1,5 +1,6 @@
 package com.example.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -16,8 +17,12 @@ data class MangaEntity(
     val lastReadChapterTitle: String? = null,
     val lastReadPage: Int = 0,
     val lastReadTime: Long = 0L,
-    val totalChapters: Int = 0
+    val totalChapters: Int = 0,
+    @ColumnInfo(defaultValue = "0") val archiveModifiedTime: Long = 0L
 )
+
+@Entity(tableName = "library_custom_order")
+data class LibraryOrderEntity(@PrimaryKey val mangaId: String, val position: Int)
 
 @Entity(tableName = "chapter_progress")
 data class ChapterProgressEntity(

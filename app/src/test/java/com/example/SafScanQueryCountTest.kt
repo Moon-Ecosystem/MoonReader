@@ -60,6 +60,7 @@ class FakeDocsProvider : ContentProvider() {
           Document.COLUMN_DISPLAY_NAME -> name
           Document.COLUMN_MIME_TYPE -> mime
           Document.COLUMN_FLAGS -> 0
+          Document.COLUMN_LAST_MODIFIED -> id.substringAfterLast('/').removePrefix("c").toLongOrNull()
           else -> null
         }
       })
@@ -89,7 +90,22 @@ class SafScanQueryCountTest {
 
     assertEquals(FakeDocsProvider.MANGA, result.mangaList.size)
     assertEquals(FakeDocsProvider.CHAPTERS, result.chaptersByMangaId.values.first().size)
+    assertTrue(result.mangaList.all { it.archiveModifiedTime == FakeDocsProvider.CHAPTERS.toLong() })
     // root listing + one listing per manga folder, plus a couple for the root DocumentFile name
     assertTrue("too many provider queries: ${FakeDocsProvider.queries}", FakeDocsProvider.queries <= FakeDocsProvider.MANGA + 3)
+  }
+
+  @Test
+  fun `archives directly in the root contribute their last modified time`() {
+    FakeDocsProvider.build()
+    FakeDocsProvider.docs["lib/c100"] = "Loose chapter.cbz" to "application/zip"
+    FakeDocsProvider.children["lib"] = FakeDocsProvider.children.getValue("lib") + "lib/c100"
+    Robolectric.buildContentProvider(FakeDocsProvider::class.java)
+      .create(ProviderInfo().apply { authority = FakeDocsProvider.AUTHORITY })
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val treeUri = DocumentsContract.buildTreeDocumentUri(FakeDocsProvider.AUTHORITY, "lib")
+
+    val result = MangaScanner.scanFolder(context, treeUri.toString())
+    assertEquals(100L, result.mangaList.single { it.id.endsWith("_root") }.archiveModifiedTime)
   }
 }

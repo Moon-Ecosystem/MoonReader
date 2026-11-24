@@ -37,7 +37,15 @@ enum class LibrarySort(val displayName: String, val ascendingByDefault: Boolean)
     LAST_READ("Last read", false),
     TITLE("Title", true),
     TOTAL_CHAPTERS("Total chapters", false),
-    UNREAD("Unread chapters", false)
+    UNREAD("Unread chapters", false),
+    ARCHIVE_MODIFIED("Archive modified time", false),
+    CUSTOM("Custom", true)
+}
+
+enum class LibraryGridLayout(val label: String, val columns: Int?) {
+    AUTOMATIC("Automatic", null),
+    FOUR_COLUMNS("4 columns", 4),
+    FIVE_COLUMNS("5 columns", 5)
 }
 
 /** Library status filter; combines with the favorites-only toggle. */
@@ -84,7 +92,8 @@ data class Manga(
     val lastReadChapterTitle: String? = null,
     val lastReadPage: Int = 0,
     val lastReadTime: Long = 0L,
-    val readChapterCount: Int = 0
+    val readChapterCount: Int = 0,
+    val archiveModifiedTime: Long = 0L
 ) {
     val isCompleted: Boolean get() = chapterCount > 0 && readChapterCount >= chapterCount
 }

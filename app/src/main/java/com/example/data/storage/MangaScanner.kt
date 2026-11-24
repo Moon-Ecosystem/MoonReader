@@ -75,6 +75,8 @@ object MangaScanner {
                 DocumentsContract.Document.COLUMN_LAST_MODIFIED
             )
             context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+                val sizeColumn = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val modifiedColumn = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                 while (c.moveToNext()) {
                     val id = c.getString(0) ?: continue
                     result.add(
@@ -83,8 +85,8 @@ object MangaScanner {
                             docId = id,
                             name = c.getString(1) ?: "",
                             isDirectory = c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR,
-                            size = if (c.isNull(3)) -1L else c.getLong(3),
-                            lastModified = if (c.isNull(4)) 0L else c.getLong(4)
+                            size = if (sizeColumn < 0 || c.isNull(sizeColumn)) -1L else c.getLong(sizeColumn),
+                            lastModified = if (modifiedColumn < 0 || c.isNull(modifiedColumn)) 0L else c.getLong(modifiedColumn)
                         )
                     )
                 }
@@ -262,7 +264,8 @@ object MangaScanner {
                         folderUriString = mangaId,
                         chapterCount = chapters.size,
                         coverPath = coverPath,
-                        hasExplicitFolderCover = hasFolderCover
+                        hasExplicitFolderCover = hasFolderCover,
+                        archiveModifiedTime = chapterDocs.maxOf { it.lastModified.coerceAtLeast(0L) }
                     )
 
                     mangaList.add(manga)
@@ -318,7 +321,8 @@ object MangaScanner {
                     folderUriString = rootDoc.uri.toString(),
                     chapterCount = chapters.size,
                     coverPath = coverPath,
-                    hasExplicitFolderCover = hasFolderCover
+                    hasExplicitFolderCover = hasFolderCover,
+                    archiveModifiedTime = directCbzFiles.maxOf { it.lastModified.coerceAtLeast(0L) }
                 )
                 mangaList.add(manga)
                 chaptersMap[mangaId] = chapters
@@ -419,7 +423,8 @@ object MangaScanner {
                         folderUriString = mangaId,
                         chapterCount = chapters.size,
                         coverPath = coverPath,
-                        hasExplicitFolderCover = hasFolderCover
+                        hasExplicitFolderCover = hasFolderCover,
+                        archiveModifiedTime = chapterFiles.maxOf { it.lastModified().coerceAtLeast(0L) }
                     )
                     mangaList.add(manga)
                     chaptersMap[mangaId] = chapters
@@ -471,7 +476,8 @@ object MangaScanner {
                     folderUriString = rootFile.absolutePath,
                     chapterCount = chapters.size,
                     coverPath = coverPath,
-                    hasExplicitFolderCover = hasFolderCover
+                    hasExplicitFolderCover = hasFolderCover,
+                    archiveModifiedTime = directFiles.maxOf { it.lastModified().coerceAtLeast(0L) }
                 )
                 mangaList.add(manga)
                 chaptersMap[mangaId] = chapters

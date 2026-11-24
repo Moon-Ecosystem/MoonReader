@@ -14,6 +14,7 @@ import com.example.data.storage.CbzArchive
 import com.example.data.storage.CbzExtractor
 import com.example.data.storage.ComicInfo
 import com.example.data.storage.ComicInfoParser
+import com.example.data.storage.CoverImages
 import com.example.data.storage.MangaScanner
 import com.example.data.storage.OpenArchives
 import com.example.data.storage.SampleMangaGenerator
@@ -29,6 +30,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
+import java.util.UUID
 
 class MangaRepository(
     private val context: Context,
@@ -76,7 +79,8 @@ class MangaRepository(
                     lastReadChapterTitle = e.lastReadChapterTitle,
                     lastReadPage = e.lastReadPage,
                     lastReadTime = e.lastReadTime,
-                    readChapterCount = readCounts[e.id] ?: 0
+                    readChapterCount = readCounts[e.id] ?: 0,
+                    archiveModifiedTime = e.archiveModifiedTime
                 )
             }.sortedBy { it.title }
         }
@@ -135,45 +139,25 @@ class MangaRepository(
         }
 
         val result = MangaScanner.scanFolder(context, folderUri)
-        _scannedManga.value = result.mangaList
-        _scannedChapters.value = result.chaptersByMangaId
-        comicInfoCache.clear()
+        if (preferencesManager.folderUri.value != folderUri) return@withContext false
 
         // Persist scanned manga headers to Room so metadata is retained
         val existingById = mangaDao.getAllManga().first().associateBy { it.id }
         val entities = result.mangaList.map { manga ->
-            val existing = existingById[manga.id]
-
-            // Resolve cover path with proper priority:
-            // 1. If an explicit cover image file (cover.jpg/png) was found in the manga folder, use it!
-            // 2. If the user previously chose a custom cover or has one saved in DB that exists on disk, keep it!
-            // 3. Fallback to freshly scanned default chapter cover.
-            val finalCoverPath = when {
-                manga.hasExplicitFolderCover && !manga.coverPath.isNullOrBlank() -> {
-                    manga.coverPath
-                }
-                existing?.coverPath != null && File(existing.coverPath).exists() -> {
-                    existing.coverPath
-                }
-                else -> {
-                    manga.coverPath
-                }
-            }
-
             MangaEntity(
                 id = manga.id,
                 title = manga.title,
                 folderUriString = manga.folderUriString,
-                coverPath = finalCoverPath,
-                isFavorite = existing?.isFavorite ?: false,
-                lastReadChapterId = existing?.lastReadChapterId,
-                lastReadChapterTitle = existing?.lastReadChapterTitle,
-                lastReadPage = existing?.lastReadPage ?: 0,
-                lastReadTime = existing?.lastReadTime ?: 0L,
-                totalChapters = manga.chapterCount
+                coverPath = existingById[manga.id]?.coverPath?.takeIf(::isCustomCover) ?: manga.coverPath,
+                totalChapters = manga.chapterCount,
+                archiveModifiedTime = manga.archiveModifiedTime
             )
         }
-        mangaDao.insertOrUpdateMangaList(entities)
+        mangaDao.saveScannedManga(entities, existingById.mapValues { it.value.coverPath })
+        if (preferencesManager.folderUri.value != folderUri) return@withContext false
+        _scannedManga.value = result.mangaList
+        _scannedChapters.value = result.chaptersByMangaId
+        comicInfoCache.clear()
 
         // The library is already published above; generate missing first-page covers now, a few at a time.
         // Each lands via the Room flow, so cards fill in as they finish instead of the scan waiting for all.
@@ -187,7 +171,7 @@ class MangaRepository(
                 launch {
                     coverSlots.withPermit {
                         CbzExtractor.extractCover(context, chapterUri, entity.id)
-                            ?.let { mangaDao.updateCoverPath(entity.id, it) }
+                            ?.let { mangaDao.updateScannedCover(entity.id, entity.coverPath, it) }
                     }
                 }
             }
@@ -211,27 +195,28 @@ class MangaRepository(
         mangaDao.updateFavorite(mangaId, isFavorite)
     }
 
-    suspend fun updateMangaCover(mangaId: String, newCoverPath: String) = withContext(Dispatchers.IO) {
-        val existing = mangaDao.getMangaByIdOnce(mangaId)
-        if (existing != null) {
-            mangaDao.updateCoverPath(mangaId, newCoverPath)
-        } else {
-            val scanned = _scannedManga.value?.find { it.id == mangaId }
-            if (scanned != null) {
-                mangaDao.insertOrUpdateManga(
-                    MangaEntity(
-                        id = scanned.id,
-                        title = scanned.title,
-                        folderUriString = scanned.folderUriString,
-                        coverPath = newCoverPath,
-                        totalChapters = scanned.chapterCount
-                    )
-                )
+    private val customCoversDir = File(context.filesDir, "custom_covers")
+
+    private fun isCustomCover(path: String): Boolean = File(path).let { file ->
+        file.parentFile == customCoversDir && file.isFile && file.canRead() && file.length() > 0L
+    }
+
+    suspend fun saveCustomCover(mangaId: String, open: () -> InputStream?): Boolean = withContext(Dispatchers.IO) {
+        if (!customCoversDir.mkdirs() && !customCoversDir.isDirectory) return@withContext false
+        val cover = File(customCoversDir, "cover_${UUID.randomUUID()}.jpg")
+        val staging = File(customCoversDir, "${cover.name}.pending")
+        try {
+            if (!CoverImages.saveScaled(open, staging)) {
+                val input = open() ?: return@withContext false
+                input.use { source -> staging.outputStream().use { source.copyTo(it) } }
             }
-        }
-        // Update in-memory state so UI updates instantaneously
-        _scannedManga.value = _scannedManga.value?.map {
-            if (it.id == mangaId) it.copy(coverPath = newCoverPath) else it
+            if (staging.length() == 0L || !staging.renameTo(cover)) return@withContext false
+            val saved = mangaDao.updateCoverPath(mangaId, cover.absolutePath) > 0
+            if (!saved) cover.delete()
+            saved
+        } finally {
+            staging.delete()
+            File(staging.path + ".tmp").delete()
         }
     }
 

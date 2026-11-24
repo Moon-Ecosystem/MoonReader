@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.LibrarySort
 import com.example.data.backup.BackupException
 import com.example.data.backup.BackupRepository
 import com.example.data.backup.remapLibraryId
@@ -12,6 +13,7 @@ import com.example.data.db.ChapterOverrideEntity
 import com.example.data.db.ChapterProgressEntity
 import com.example.data.db.CollectionEntity
 import com.example.data.db.CollectionMangaEntity
+import com.example.data.db.LibraryOrderEntity
 import com.example.data.db.MangaEntity
 import com.example.data.db.MangaTrackEntity
 import com.example.data.db.ReadingSessionEntity
@@ -66,7 +68,8 @@ class BackupTest {
     val cover = File(context.filesDir, "custom_covers/cover_1.jpg").apply { parentFile!!.mkdirs(); writeText("cover") }
     dao.replaceAll(
       BackupData(
-        manga = listOf(MangaEntity(series, "Berserk", series, cover.absolutePath, isFavorite = true, lastReadChapterId = chapter, lastReadPage = 7)),
+        manga = listOf(MangaEntity(series, "Berserk", series, cover.absolutePath, isFavorite = true,
+          lastReadChapterId = chapter, lastReadPage = 7, archiveModifiedTime = 123_000L)),
         chapterProgress = listOf(ChapterProgressEntity(chapter, series, "Ch1", lastReadPage = 7, totalPages = 20, isRead = true)),
         readingSessions = listOf(ReadingSessionEntity(0, series, chapter, "Ch1", 1000L, 61_000L, 60_000L, 0, 7, 7, false)),
         collections = listOf(CollectionEntity(1, "Seinen", 0)),
@@ -75,6 +78,7 @@ class BackupTest {
         chapterOverrides = listOf(ChapterOverrideEntity(chapter, series, "Chapter One", isHidden = true))
       )
     )
+    db.libraryOrderDao().replace(listOf(series, doc(oldRoot, "_root")))
     prefs.edit().putString("pref_reading_direction", "LTR").putString("pref_pin_hash", "old-pin").putFloat("f", 1.5f).commit()
 
     val backup = ByteArrayOutputStream().also { backups.export(it, oldRoot) }.toByteArray()
@@ -93,6 +97,9 @@ class BackupTest {
     assertEquals(newSeries, manga.folderUriString)
     assertEquals(newChapter, manga.lastReadChapterId)
     assertTrue(manga.isFavorite)
+    assertEquals(123_000L, manga.archiveModifiedTime)
+    assertEquals(listOf(LibraryOrderEntity(newSeries, 0), LibraryOrderEntity(doc(newRoot, "_root"), 1)),
+      dao.allCustomOrder())
     assertEquals("cover", File(manga.coverPath!!).readText())
     assertEquals(newChapter, dao.allProgress().single().chapterId)
     assertEquals(newChapter, dao.allSessions().single().chapterId)
@@ -112,7 +119,7 @@ class BackupTest {
   }
 
   @Test
-  fun `a backup made before chapter changes existed still restores`() = runBlocking {
+  fun `a backup made before chapter changes and custom order still restores`() = runBlocking {
     // Version 1 backups have no "chapterOverrides" array at all
     val backup = ByteArrayOutputStream().also { out ->
       ZipOutputStream(out).use { zip ->
@@ -133,9 +140,13 @@ class BackupTest {
       }
     }.toByteArray()
 
+    db.libraryOrderDao().replace(listOf(doc(newRoot, "%2FExisting")))
+    PreferencesManager(context).setLibrarySort(LibrarySort.CUSTOM, true)
     backups.restore(backup.inputStream(), newRoot)
 
     assertEquals(emptyList<ChapterOverrideEntity>(), dao.allChapterOverrides())
+    assertEquals(emptyList<LibraryOrderEntity>(), dao.allCustomOrder())
+    assertEquals(LibrarySort.LAST_READ, PreferencesManager(context).librarySort.value)
   }
 
   @Test
